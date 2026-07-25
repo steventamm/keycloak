@@ -14,6 +14,7 @@ export type RealmSettingsTab =
   | "security-defenses"
   | "sessions"
   | "tokens"
+  | "fedsetup"
   | "client-policies"
   | "user-profile"
   | "user-registration";

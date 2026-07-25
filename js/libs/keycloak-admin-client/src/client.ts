@@ -6,6 +6,7 @@ import { ClientPolicies } from "./resources/clientPolicies.js";
 import { Clients } from "./resources/clients.js";
 import { ClientScopes } from "./resources/clientScopes.js";
 import { Components } from "./resources/components.js";
+import { FedSetup } from "./resources/fedSetup.js";
 import { Groups } from "./resources/groups.js";
 import { IdentityProviders } from "./resources/identityProviders.js";
 import { Realms } from "./resources/realms.js";
@@ -62,6 +63,7 @@ export class KeycloakAdminClient {
   public attackDetection: AttackDetection;
   public authenticationManagement: AuthenticationManagement;
   public cache: Cache;
+  public fedSetup: FedSetup;
   public ssf: Ssf;
 
   // Members
@@ -107,6 +109,7 @@ export class KeycloakAdminClient {
     this.whoAmI = new WhoAmI(this);
     this.attackDetection = new AttackDetection(this);
     this.cache = new Cache(this);
+    this.fedSetup = new FedSetup(this);
     this.ssf = new Ssf(this);
   }
 

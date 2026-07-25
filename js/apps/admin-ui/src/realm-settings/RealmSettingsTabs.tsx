@@ -39,6 +39,7 @@ import { joinPath } from "../utils/joinPath";
 import useIsFeatureEnabled, { Feature } from "../utils/useIsFeatureEnabled";
 import useLocale from "../utils/useLocale";
 import { RealmSettingsEmailTab } from "./EmailTab";
+import { FedSetupTab } from "./FedSetupTab";
 import { RealmSettingsGeneralTab } from "./GeneralTab";
 import { RealmSettingsLoginTab } from "./LoginTab";
 import { PartialExportDialog } from "./PartialExport";
@@ -298,6 +299,7 @@ export const RealmSettingsTabs = () => {
   const securityDefensesTab = useTab("security-defenses");
   const sessionsTab = useTab("sessions");
   const tokensTab = useTab("tokens");
+  const fedSetupTab = useTab("fedsetup");
   const clientPoliciesTab = useTab("client-policies");
   const userProfileTab = useTab("user-profile");
   const userRegistrationTab = useTab("user-registration");
@@ -421,6 +423,15 @@ export const RealmSettingsTabs = () => {
           >
             <RealmSettingsTokensTab save={save} realm={realm!} />
           </Tab>
+          {isFeatureEnabled(Feature.FedSetup) && (
+            <Tab
+              title={<TabTitleText>FedSetup</TabTitleText>}
+              data-testid="rs-fedsetup-tab"
+              {...fedSetupTab}
+            >
+              <FedSetupTab />
+            </Tab>
+          )}
           {isFeatureEnabled(Feature.ClientPolicies) && (
             <Tab
               title={<TabTitleText>{t("clientPolicies")}</TabTitleText>}

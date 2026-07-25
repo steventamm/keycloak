@@ -10,6 +10,8 @@ import org.keycloak.Config.Scope;
 import org.keycloak.Token;
 import org.keycloak.common.Profile;
 import org.keycloak.common.Profile.Feature;
+import org.keycloak.fedsetup.FedSetupScimConnectionService;
+import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
@@ -77,7 +79,17 @@ public class ScimRealmResourceFactory implements RealmResourceProviderFactory, E
                             .build(realm.getName())
                             .toString();
 
-                    if (!accessToken.hasAudience(scimAudience)) {
+                    boolean fedSetupEnabled = Profile.isFeatureEnabled(Feature.FED_SETUP_CONFIGURATION);
+                    FedSetupConnection fedSetupConnection = fedSetupEnabled
+                            ? FedSetupScimConnectionService.getAuthorizedConnection(realm, client) : null;
+                    if (fedSetupEnabled && FedSetupScimConnectionService.hasConnectionBinding(client) && fedSetupConnection == null) {
+                        logger.debug("SCIM request rejected: FedSetup service client is not bound to an active connection");
+                        throw new ErrorResponseException(Response.status(Status.UNAUTHORIZED)
+                                .type(MediaType.APPLICATION_JSON)
+                                .entity(new ErrorResponse("Invalid FedSetup connection", Status.UNAUTHORIZED.getStatusCode()))
+                                .build());
+                    }
+                    if (fedSetupConnection == null && !accessToken.hasAudience(scimAudience)) {
                         logger.debug("SCIM request rejected: token does not contain the required audience");
                         throw new ErrorResponseException(Response.status(Status.UNAUTHORIZED)
                                 .type(MediaType.APPLICATION_JSON)
@@ -85,7 +97,15 @@ public class ScimRealmResourceFactory implements RealmResourceProviderFactory, E
                                 .build());
                     }
 
-                    return new ScimRealmResource(session);
+                    if (fedSetupConnection != null) {
+                        // The active connection has already been resolved from
+                        // the authenticated service client above. This bridge
+                        // is request-local; ScimResourceTypeResource remains
+                        // responsible for the negotiated operation subset.
+                        FedSetupScimRequestPermissionEvaluator.activate(session);
+                    }
+
+                    return new ScimRealmResource(session, fedSetupConnection);
                 }
 
                 @Override

@@ -152,8 +152,8 @@ public class OIDCIdentityProvider extends AbstractOAuth2IdentityProvider<OIDCIde
      */
     public String refreshTokenForLogout(KeycloakSession session, UserSessionModel userSession) {
         String refreshToken = getFederatedRefreshToken(userSession);
-        try (VaultStringSecret vaultStringSecret = session.vault().getStringSecret(getConfig().getClientSecret())) {
-            return getRefreshTokenRequest(session, refreshToken, getConfig().getClientId(), vaultStringSecret.get().orElse(getConfig().getClientSecret())).asString();
+        try {
+            return getRefreshTokenRequest(session, refreshToken, getConfig().getClientId(), resolveClientSecret()).asString();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -321,8 +321,7 @@ public class OIDCIdentityProvider extends AbstractOAuth2IdentityProvider<OIDCIde
     }
 
     private AccessTokenResponse doTokenRefresh(EventBuilder event, String refreshToken) throws IOException {
-        VaultStringSecret vaultStringSecret = session.vault().getStringSecret(getConfig().getClientSecret());
-        SimpleHttpResponse response = getRefreshTokenRequest(session, refreshToken, getConfig().getClientId(), vaultStringSecret.get().orElse(getConfig().getClientSecret())).asResponse();
+        SimpleHttpResponse response = getRefreshTokenRequest(session, refreshToken, getConfig().getClientId(), resolveClientSecret()).asResponse();
 
         if (Response.Status.fromStatusCode(response.getStatus()).getFamily() != Response.Status.Family.SUCCESSFUL) {
             logger.debugv("Error refreshing token, refresh token expiration?: {0}", response.asString());

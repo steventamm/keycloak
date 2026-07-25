@@ -197,15 +197,23 @@ public abstract class AbstractScimResourceTypeProvider<M extends Model, R extend
     }
 
     private boolean canQuery() {
-        return session.getContext().getPermissions().hasPermission(getRealmResourceType(), AdminPermissionsSchema.QUERY)
-                || session.getContext().getPermissions().hasPermission(getRealmResourceType(), AdminPermissionsSchema.VIEW);
+        return hasPermission(getRealmResourceType(), AdminPermissionsSchema.QUERY)
+                || hasPermission(getRealmResourceType(), AdminPermissionsSchema.VIEW);
     }
 
     private boolean hasPermission(String realmResourceType, String scope) {
-        return session.getContext().getPermissions().hasPermission(realmResourceType, scope);
+        ScimRequestPermissionEvaluator evaluator = session.getAttribute(ScimRequestPermissionEvaluator.SESSION_ATTRIBUTE,
+                ScimRequestPermissionEvaluator.class);
+        return (evaluator != null && evaluator.hasPermission(null, realmResourceType, scope))
+                || session.getContext().getPermissions().hasPermission(realmResourceType, scope);
     }
 
     protected boolean hasPermission(M model, String realmResourceType, String scope) {
+        ScimRequestPermissionEvaluator evaluator = session.getAttribute(ScimRequestPermissionEvaluator.SESSION_ATTRIBUTE,
+                ScimRequestPermissionEvaluator.class);
+        if (evaluator != null && evaluator.hasPermission(model, realmResourceType, scope)) {
+            return !AdminPermissionsSchema.MANAGE.equals(scope) || isManageable(model);
+        }
         if (AdminPermissionsSchema.VIEW.equals(scope)) {
             return session.getContext().getPermissions().hasPermission(model, realmResourceType, scope);
         }

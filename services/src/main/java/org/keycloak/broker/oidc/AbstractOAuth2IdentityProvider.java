@@ -330,28 +330,26 @@ public abstract class AbstractOAuth2IdentityProvider<C extends OAuth2IdentityPro
     }
 
     private OAuthResponse refreshToken(OAuthResponse previousResponse, KeycloakSession session) throws IOException {
-        try (VaultStringSecret vaultStringSecret = session.vault().getStringSecret(getConfig().getClientSecret())) {
-            SimpleHttpRequest refreshTokenRequest = getRefreshTokenRequest(session, previousResponse.getRefreshToken(), getConfig().getClientId(), vaultStringSecret.get().orElse(getConfig().getClientSecret()));
-            try (SimpleHttpResponse refreshTokenResponse = refreshTokenRequest.asResponse()) {
-                String response = refreshTokenResponse.asString();
-                if (response.contains("error")) {
-                    ErrorRepresentation error = new ErrorRepresentation();
-                    error.setErrorMessage("Unable to refresh token");
-                    throw new WebApplicationException("Received and response code " + refreshTokenResponse.getStatus() +
-                                                      " with a response '" + refreshTokenResponse.asString() + "'",
-                            Response.status(Response.Status.BAD_GATEWAY).entity(error).type(MediaType.APPLICATION_JSON).build());
-                }
-                OAuthResponse newResponse = JsonSerialization.readValue(response, OAuthResponse.class);
-
-                if (newResponse.getRefreshToken() == null && previousResponse.getRefreshToken() != null) {
-                    newResponse.setRefreshToken(previousResponse.getRefreshToken());
-                    newResponse.setRefreshExpiresIn(previousResponse.getRefreshExpiresIn());
-                }
-                if (newResponse.getIdToken() == null && previousResponse.getIdToken() != null) {
-                    newResponse.setIdToken(previousResponse.getIdToken());
-                }
-                return newResponse;
+        SimpleHttpRequest refreshTokenRequest = getRefreshTokenRequest(session, previousResponse.getRefreshToken(), getConfig().getClientId(), resolveClientSecret());
+        try (SimpleHttpResponse refreshTokenResponse = refreshTokenRequest.asResponse()) {
+            String response = refreshTokenResponse.asString();
+            if (response.contains("error")) {
+                ErrorRepresentation error = new ErrorRepresentation();
+                error.setErrorMessage("Unable to refresh token");
+                throw new WebApplicationException("Received and response code " + refreshTokenResponse.getStatus() +
+                                                  " with a response '" + refreshTokenResponse.asString() + "'",
+                        Response.status(Response.Status.BAD_GATEWAY).entity(error).type(MediaType.APPLICATION_JSON).build());
             }
+            OAuthResponse newResponse = JsonSerialization.readValue(response, OAuthResponse.class);
+
+            if (newResponse.getRefreshToken() == null && previousResponse.getRefreshToken() != null) {
+                newResponse.setRefreshToken(previousResponse.getRefreshToken());
+                newResponse.setRefreshExpiresIn(previousResponse.getRefreshExpiresIn());
+            }
+            if (newResponse.getIdToken() == null && previousResponse.getIdToken() != null) {
+                newResponse.setIdToken(previousResponse.getIdToken());
+            }
+            return newResponse;
         }
     }
 
@@ -697,19 +695,29 @@ public abstract class AbstractOAuth2IdentityProvider<C extends OAuth2IdentityPro
                     .param(OAuth2Constants.CLIENT_ASSERTION, jws)
                     .param(OAuth2Constants.CLIENT_ID, getConfig().getClientId());
         } else {
-            try (VaultStringSecret vaultStringSecret = session.vault().getStringSecret(getConfig().getClientSecret())) {
-                if (getConfig().isBasicAuthentication()) {
-                    String clientSecret = vaultStringSecret.get().orElse(getConfig().getClientSecret());
-                    String header = org.keycloak.util.BasicAuthHelper.RFC6749.createHeader(getConfig().getClientId(), clientSecret);
-                    return tokenRequest.header(HttpHeaders.AUTHORIZATION, header);
-                }
-                if (getConfig().isBasicAuthenticationUnencoded()) {
-                    return tokenRequest.authBasic(getConfig().getClientId(), vaultStringSecret.get().orElse(getConfig().getClientSecret()));
-                }
-                return tokenRequest
-                        .param(OAUTH2_PARAMETER_CLIENT_ID, getConfig().getClientId())
-                        .param(OAUTH2_PARAMETER_CLIENT_SECRET, vaultStringSecret.get().orElse(getConfig().getClientSecret()));
+            String clientSecret = resolveClientSecret();
+            if (getConfig().isBasicAuthentication()) {
+                String header = org.keycloak.util.BasicAuthHelper.RFC6749.createHeader(getConfig().getClientId(), clientSecret);
+                return tokenRequest.header(HttpHeaders.AUTHORIZATION, header);
             }
+            if (getConfig().isBasicAuthenticationUnencoded()) {
+                return tokenRequest.authBasic(getConfig().getClientId(), clientSecret);
+            }
+            return tokenRequest
+                    .param(OAUTH2_PARAMETER_CLIENT_ID, getConfig().getClientId())
+                    .param(OAUTH2_PARAMETER_CLIENT_SECRET, clientSecret);
+        }
+    }
+
+    /**
+     * Resolves this broker's client secret.  Subclasses with a provider-local
+     * credential store may extend this without changing ordinary broker
+     * authentication behavior.
+     */
+    protected String resolveClientSecret() {
+        String configuredSecret = getConfig().getClientSecret();
+        try (VaultStringSecret vaultStringSecret = session.vault().getStringSecret(configuredSecret)) {
+            return vaultStringSecret.get().orElse(configuredSecret);
         }
     }
 
@@ -732,15 +740,13 @@ public abstract class AbstractOAuth2IdentityProvider<C extends OAuth2IdentityPro
 
     protected SignatureSignerContext getSignatureContext() {
         if (getConfig().getClientAuthMethod().equals(OIDCLoginProtocol.CLIENT_SECRET_JWT)) {
-            try (VaultStringSecret vaultStringSecret = session.vault().getStringSecret(getConfig().getClientSecret())) {
-                KeyWrapper key = new KeyWrapper();
-                String alg = getConfig().getClientAssertionSigningAlg() != null ? getConfig().getClientAssertionSigningAlg() : Algorithm.HS256;
-                key.setAlgorithm(alg);
-                byte[] decodedSecret = vaultStringSecret.get().orElse(getConfig().getClientSecret()).getBytes();
-                SecretKey secret = new SecretKeySpec(decodedSecret, 0, decodedSecret.length, alg);
-                key.setSecretKey(secret);
-                return new MacSignatureSignerContext(key);
-            }
+            KeyWrapper key = new KeyWrapper();
+            String alg = getConfig().getClientAssertionSigningAlg() != null ? getConfig().getClientAssertionSigningAlg() : Algorithm.HS256;
+            key.setAlgorithm(alg);
+            byte[] decodedSecret = resolveClientSecret().getBytes();
+            SecretKey secret = new SecretKeySpec(decodedSecret, 0, decodedSecret.length, alg);
+            key.setSecretKey(secret);
+            return new MacSignatureSignerContext(key);
         }
         String alg = getConfig().getClientAssertionSigningAlg() != null ? getConfig().getClientAssertionSigningAlg() : Algorithm.RS256;
         return session.getProvider(SignatureProvider.class, alg).signer();

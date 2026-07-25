@@ -10,7 +10,20 @@ export type { default as OrganizationInvitationRepresentation } from "./defs/org
 export { OrganizationInvitationStatus } from "./defs/organizationInvitationRepresentation.js";
 
 export { Groups } from "./resources/groups.js";
+export { FedSetup } from "./resources/fedSetup.js";
 export { Ssf } from "./resources/ssf.js";
+export type {
+  DirectInstallationTrustRepresentation,
+  DirectInstallationTrustInvitationRequest,
+  DirectInstallationTrustApprovalRequest,
+  DirectInstallationTrustConsentResult,
+  FedSetupConfigurationProfile,
+  FedSetupConnectionRepresentation,
+  FedSetupInstallationRepresentation,
+  FedSetupScimProvisioningTaskRepresentation,
+  FedSetupRuntimeRepresentation,
+  FedSetupTrustPreAuthorizationRepresentation,
+} from "./defs/fedSetupRepresentation.js";
 export type {
   SsfAdminSubjectRequest,
   SsfAdminSubjectResponse,

@@ -8,6 +8,7 @@ import jakarta.ws.rs.core.Response.Status;
 
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
+import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.representations.AccessToken;
 import org.keycloak.scim.protocol.response.ErrorResponse;
 import org.keycloak.scim.resource.spi.ScimResourceTypeProvider;
@@ -22,9 +23,15 @@ public class ScimRealmResource {
     private static final Logger logger = Logger.getLogger(ScimRealmResource.class);
 
     private final KeycloakSession session;
+    private final FedSetupConnection fedSetupConnection;
 
     public ScimRealmResource(KeycloakSession session) {
+        this(session, null);
+    }
+
+    public ScimRealmResource(KeycloakSession session, FedSetupConnection fedSetupConnection) {
         this.session = session;
+        this.fedSetupConnection = fedSetupConnection;
     }
 
     @Path("/v2/{resourceType}")
@@ -41,7 +48,7 @@ public class ScimRealmResource {
 
         AdminEventBuilder adminEvent = createAdminEventBuilder();
 
-        return new ScimResourceTypeResource<>(session, provider, adminEvent);
+        return new ScimResourceTypeResource<>(session, provider, adminEvent, fedSetupConnection);
     }
 
     private AdminEventBuilder createAdminEventBuilder() {
