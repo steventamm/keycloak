@@ -15,12 +15,12 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.keycloak.common.util.Time;
-import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
 import org.keycloak.fedsetup.representation.DirectInstallationTrustInvitation;
-import org.keycloak.fedsetup.representation.FedSetupFrontChannelTransaction;
+import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.fedsetup.representation.FedSetupCredentialReference;
+import org.keycloak.fedsetup.representation.FedSetupFrontChannelTransaction;
 import org.keycloak.fedsetup.representation.FedSetupInstallation;
 import org.keycloak.fedsetup.representation.FedSetupScimProvisioningTask;
 import org.keycloak.fedsetup.representation.FedSetupTrustPreAuthorization;

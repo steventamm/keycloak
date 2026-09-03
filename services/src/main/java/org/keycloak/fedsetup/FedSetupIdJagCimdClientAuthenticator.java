@@ -11,6 +11,7 @@ import java.util.Objects;
 
 import jakarta.ws.rs.core.Response;
 
+import org.keycloak.Config;
 import org.keycloak.OAuthErrorException;
 import org.keycloak.TokenVerifier;
 import org.keycloak.authentication.AuthenticationFlowError;
@@ -20,7 +21,6 @@ import org.keycloak.authentication.authenticators.client.AbstractJWTClientValida
 import org.keycloak.authentication.authenticators.client.ClientAssertionState;
 import org.keycloak.authentication.authenticators.client.ClientAuthUtil;
 import org.keycloak.authentication.authenticators.client.JWTClientValidator;
-import org.keycloak.Config;
 import org.keycloak.common.Profile;
 import org.keycloak.events.Details;
 import org.keycloak.fedsetup.representation.FedSetupConnection;

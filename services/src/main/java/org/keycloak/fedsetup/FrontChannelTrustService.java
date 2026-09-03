@@ -10,8 +10,8 @@ package org.keycloak.fedsetup;
 import java.util.Objects;
 
 import org.keycloak.common.util.Time;
-import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
+import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupFrontChannelTransaction;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;

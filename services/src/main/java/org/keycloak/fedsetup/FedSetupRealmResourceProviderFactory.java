@@ -12,9 +12,9 @@ import org.keycloak.common.Profile;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.provider.EnvironmentDependentProviderFactory;
-import org.keycloak.services.scheduled.ClusterAwareScheduledTaskRunner;
 import org.keycloak.services.resource.RealmResourceProvider;
 import org.keycloak.services.resource.RealmResourceProviderFactory;
+import org.keycloak.services.scheduled.ClusterAwareScheduledTaskRunner;
 import org.keycloak.timer.TimerProvider;
 
 /** Registers the realm-scoped Express Configuration receiver at {@code /realms/{realm}/fedsetup}. */

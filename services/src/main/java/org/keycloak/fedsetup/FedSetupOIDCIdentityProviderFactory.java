@@ -16,10 +16,10 @@
  */
 package org.keycloak.fedsetup;
 
+import org.keycloak.Config;
 import org.keycloak.broker.oidc.OIDCIdentityProvider;
 import org.keycloak.broker.oidc.OIDCIdentityProviderConfig;
 import org.keycloak.broker.oidc.OIDCIdentityProviderFactory;
-import org.keycloak.Config;
 import org.keycloak.common.Profile;
 import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.KeycloakSession;

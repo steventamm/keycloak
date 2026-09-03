@@ -18,13 +18,14 @@ package org.keycloak.fedsetup;
 
 import java.util.List;
 
-import org.jboss.logging.Logger;
 import org.keycloak.models.KeycloakContext;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.timer.ScheduledTask;
+
+import org.jboss.logging.Logger;
 
 /** Performs the per-realm portion of the cluster-single SAML metadata refresh job. */
 public final class FedSetupSamlMetadataRefreshTask implements ScheduledTask {

@@ -16,8 +16,6 @@ import java.util.UUID;
 
 import jakarta.ws.rs.core.UriBuilder;
 
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
 import org.keycloak.common.util.Time;
 import org.keycloak.crypto.Algorithm;
 import org.keycloak.crypto.KeyUse;
@@ -35,6 +33,9 @@ import org.keycloak.services.Urls;
 import org.keycloak.urls.UrlType;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.util.KeyWrapperUtil;
+
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.StringEntity;
 
 /** IdP-side senders for the IETF Direct Installation Trust profiles. */
 public final class OutboundTrustDispatcher {

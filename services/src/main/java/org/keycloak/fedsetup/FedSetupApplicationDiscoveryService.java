@@ -12,12 +12,13 @@ import java.net.URI;
 import java.util.Objects;
 import java.util.Set;
 
-import org.apache.http.client.config.RequestConfig;
 import org.keycloak.fedsetup.representation.FedSetupDiscoveryRepresentation;
 import org.keycloak.http.simple.SimpleHttp;
 import org.keycloak.http.simple.SimpleHttpResponse;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.util.JsonSerialization;
+
+import org.apache.http.client.config.RequestConfig;
 
 /** Fetches and strictly validates an external Application's FedSetup discovery document. */
 public final class FedSetupApplicationDiscoveryService {

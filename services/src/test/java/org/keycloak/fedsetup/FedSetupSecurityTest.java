@@ -18,7 +18,6 @@ import java.util.Set;
 
 import jakarta.ws.rs.core.Response;
 
-import org.junit.jupiter.api.Test;
 import org.keycloak.broker.saml.SAMLIdentityProviderConfig;
 import org.keycloak.common.util.Time;
 import org.keycloak.crypto.Algorithm;
@@ -41,6 +40,8 @@ import org.keycloak.models.SingleUseObjectProvider;
 import org.keycloak.representations.JsonWebToken;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.util.KeyWrapperUtil;
+
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;

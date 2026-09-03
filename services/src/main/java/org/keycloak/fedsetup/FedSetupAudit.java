@@ -32,6 +32,7 @@ import org.keycloak.fedsetup.representation.DirectInstallationTrust;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
+
 import org.jboss.logging.Logger;
 
 /** Emits a redacted, protocol-originated Keycloak admin event. */

@@ -16,10 +16,8 @@ import java.util.UUID;
 
 import jakarta.ws.rs.core.UriBuilder;
 
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
-import org.keycloak.common.util.Time;
 import org.keycloak.common.util.PemUtils;
+import org.keycloak.common.util.Time;
 import org.keycloak.crypto.Algorithm;
 import org.keycloak.crypto.KeyUse;
 import org.keycloak.crypto.KeyWrapper;
@@ -44,6 +42,9 @@ import org.keycloak.services.resources.RealmsResource;
 import org.keycloak.urls.UrlType;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.util.KeyWrapperUtil;
+
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.StringEntity;
 
 /**
  * Explicit, retryable IdP-side dispatcher for the Keycloak Direct Installation

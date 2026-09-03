@@ -11,12 +11,13 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Objects;
 
-import org.apache.http.client.config.RequestConfig;
 import org.keycloak.http.simple.SimpleHttp;
 import org.keycloak.http.simple.SimpleHttpResponse;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.protocol.oidc.representations.OIDCConfigurationRepresentation;
 import org.keycloak.util.JsonSerialization;
+
+import org.apache.http.client.config.RequestConfig;
 
 /** Resolves OIDC runtime metadata only from the issuer bound in a Direct Installation Trust. */
 public final class FedSetupOidcMetadataResolver {

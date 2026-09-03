@@ -16,11 +16,12 @@
  */
 package org.keycloak.fedsetup;
 
-import org.junit.jupiter.api.Test;
 import org.keycloak.broker.oidc.OIDCIdentityProviderConfig;
 import org.keycloak.http.simple.SimpleHttp;
 import org.keycloak.http.simple.SimpleHttpRequest;
 import org.keycloak.models.IdentityProviderModel;
+
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;

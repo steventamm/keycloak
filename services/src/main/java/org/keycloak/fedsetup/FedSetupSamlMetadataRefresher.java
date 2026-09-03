@@ -26,8 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import org.apache.http.client.config.RequestConfig;
-import org.jboss.logging.Logger;
 import org.keycloak.broker.saml.SAMLIdentityProviderConfig;
 import org.keycloak.broker.saml.SAMLIdentityProviderFactory;
 import org.keycloak.common.util.Time;
@@ -38,6 +36,9 @@ import org.keycloak.http.simple.SimpleHttpResponse;
 import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
+
+import org.apache.http.client.config.RequestConfig;
+import org.jboss.logging.Logger;
 
 /**
  * Refreshes the guarded SAML metadata source of an inbound FedSetup Connection.

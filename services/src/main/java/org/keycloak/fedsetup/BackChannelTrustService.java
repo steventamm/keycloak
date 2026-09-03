@@ -13,8 +13,8 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.keycloak.common.util.Time;
-import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
+import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupTrustPreAuthorization;
 import org.keycloak.jose.jws.JWSInput;
 import org.keycloak.models.KeycloakSession;

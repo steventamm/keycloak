@@ -16,11 +16,11 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-import org.keycloak.common.Profile;
 import org.keycloak.broker.jwtauthorizationgrant.JWTAuthorizationGrantConfig;
 import org.keycloak.broker.oidc.OIDCIdentityProviderConfig;
-import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
+import org.keycloak.common.Profile;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
+import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.fedsetup.representation.FedSetupIdJagConfiguration;
 import org.keycloak.fedsetup.representation.FedSetupIdJagResourceBinding;
