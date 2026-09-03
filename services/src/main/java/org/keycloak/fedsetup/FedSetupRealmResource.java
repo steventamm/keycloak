@@ -57,6 +57,7 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.RoleModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
+import org.keycloak.protocol.oidc.utils.JWKSServerUtils;
 import org.keycloak.representations.oidc.OIDCClientRepresentation;
 import org.keycloak.services.Urls;
 import org.keycloak.services.managers.AuthenticationManager;
@@ -102,10 +103,9 @@ public class FedSetupRealmResource implements RealmResourceProvider {
     @Path("cimd")
     @Produces(MediaType.APPLICATION_JSON)
     public Response cimd() {
-        String issuer = Urls.realmIssuer(session.getContext().getUri(UrlType.FRONTEND).getBaseUri(), realm.getName());
         OIDCClientRepresentation result = new OIDCClientRepresentation();
         result.setClientId(FedSetupUrls.cimd(session.getContext().getUri(UrlType.FRONTEND), realm));
-        result.setJwksUri(issuer + "/protocol/openid-connect/certs");
+        result.setJwks(JWKSServerUtils.getRealmJwks(session, realm));
         result.setTokenEndpointAuthMethod("private_key_jwt");
         result.setTokenEndpointAuthSigningAlg("RS256");
         result.setRedirectUris(List.of(FedSetupUrls.frontCallback(session.getContext().getUri(UrlType.FRONTEND), realm)));

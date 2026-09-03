@@ -30,6 +30,7 @@ import org.keycloak.fedsetup.representation.FedSetupIdJagResourceBinding;
 import org.keycloak.fedsetup.representation.FedSetupInstallation;
 import org.keycloak.fedsetup.representation.InstallationConfigurationRequest;
 import org.keycloak.fedsetup.representation.InstallationConfigurationResponse;
+import org.keycloak.jose.jwk.JWK;
 import org.keycloak.jose.jwk.JWKBuilder;
 import org.keycloak.jose.jws.JWSBuilder;
 import org.keycloak.models.ClientModel;
@@ -37,6 +38,7 @@ import org.keycloak.models.KeycloakContext;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.SingleUseObjectProvider;
+import org.keycloak.representations.JsonWebToken;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.util.KeyWrapperUtil;
 
@@ -374,6 +376,63 @@ class FedSetupSecurityTest {
     }
 
     @Test
+    void signsPlatformControlProofBoundToNonceAndCertificationEndpoint() throws Exception {
+        KeyPair pair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        KeyWrapper key = rsaKey(pair);
+
+        String proof = FedSetupPlatformControlProof.sign(key, "HTTPS://PLATFORM.EXAMPLE:443/fedsetup/cimd/",
+                "HTTPS://CATALOG.EXAMPLE:443/platform/certifications", "challenge-nonce",
+                "proof-jti", Time.currentTime(), Time.currentTime() + 60);
+
+        JsonWebToken token = FedSetupPlatformControlProof.verify(proof, "https://platform.example/fedsetup/cimd",
+                "https://catalog.example/platform/certifications", "challenge-nonce",
+                platformControlProofJwk(pair), Set.of(Algorithm.RS256));
+        assertEquals("https://platform.example/fedsetup/cimd", token.getIssuer());
+        assertEquals(true, token.hasAudience("https://catalog.example/platform/certifications"));
+        assertEquals("challenge-nonce", token.getOtherClaims().get("nonce"));
+        assertEquals("proof-jti", token.getId());
+    }
+
+    @Test
+    void rejectsInvalidPlatformControlProofInputs() throws Exception {
+        KeyPair pair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        KeyWrapper key = rsaKey(pair);
+        long now = Time.currentTime();
+
+        assertThrows(FedSetupValidationException.class, () -> FedSetupPlatformControlProof.sign(key,
+                "https://platform.example/cimd", "https://catalog.example/platform/certifications?unexpected=true",
+                "nonce", "jti", now, now + 60));
+        assertThrows(FedSetupValidationException.class, () -> FedSetupPlatformControlProof.sign(key,
+                "https://platform.example/cimd", "https://catalog.example/platform/certifications",
+                "", "jti", now, now + 60));
+        assertThrows(FedSetupValidationException.class, () -> FedSetupPlatformControlProof.sign(key,
+                "https://platform.example/cimd", "https://catalog.example/platform/certifications",
+                "nonce", "jti", now, now + FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS + 1));
+
+        key.setAlgorithm("HS256");
+        assertThrows(FedSetupValidationException.class, () -> FedSetupPlatformControlProof.sign(key,
+                "https://platform.example/cimd", "https://catalog.example/platform/certifications",
+                "nonce", "jti", now, now + 60));
+    }
+
+    @Test
+    void rejectsPlatformControlProofVerificationMismatches() throws Exception {
+        KeyPair pair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        KeyWrapper key = rsaKey(pair);
+        String proof = FedSetupPlatformControlProof.sign(key, "https://platform.example/cimd",
+                "https://catalog.example/platform/certifications", "nonce", "jti",
+                Time.currentTime(), Time.currentTime() + 60);
+        JWK jwk = platformControlProofJwk(pair);
+
+        assertThrows(FedSetupValidationException.class, () -> FedSetupPlatformControlProof.verify(proof,
+                "https://platform.example/cimd", "https://catalog.example/platform/certifications",
+                "different-nonce", jwk, Set.of(Algorithm.RS256)));
+        assertThrows(FedSetupValidationException.class, () -> FedSetupPlatformControlProof.verify(proof,
+                "https://platform.example/cimd", "https://catalog.example/platform/certifications",
+                "nonce", jwk, Set.of("HS256")));
+    }
+
+    @Test
     void rejectsExpiredReplayedAndMalformedInstallationAuthorizations() throws Exception {
         KeyPair pair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
         DirectInstallationTrust trust = installationAuthorizationTrust(pair);
@@ -549,12 +608,7 @@ class FedSetupSecurityTest {
     }
 
     private static String signedInstallationAuthorization(KeyPair pair, String id, long issuedAt, long expiresAt, String body) {
-        KeyWrapper key = new KeyWrapper();
-        key.setKid("fedsetup-test-key");
-        key.setType(KeyType.RSA);
-        key.setAlgorithm(Algorithm.RS256);
-        key.setPrivateKey(pair.getPrivate());
-        key.setPublicKey(pair.getPublic());
+        KeyWrapper key = rsaKey(pair);
         org.keycloak.representations.JsonWebToken token = new org.keycloak.representations.JsonWebToken()
                 .issuer("https://issuer.example").id(id).iat(issuedAt).exp(expiresAt);
         token.setOtherClaims("application_tenant_id", "application-tenant");
@@ -565,6 +619,20 @@ class FedSetupSecurityTest {
         token.setOtherClaims("extension_profiles", List.of());
         return new JWSBuilder().type("JWT").kid(key.getKid()).jsonContent(token)
                 .sign(KeyWrapperUtil.createSignatureSignerContext(key));
+    }
+
+    private static KeyWrapper rsaKey(KeyPair pair) {
+        KeyWrapper key = new KeyWrapper();
+        key.setKid("fedsetup-test-key");
+        key.setType(KeyType.RSA);
+        key.setAlgorithm(Algorithm.RS256);
+        key.setPrivateKey(pair.getPrivate());
+        key.setPublicKey(pair.getPublic());
+        return key;
+    }
+
+    private static JWK platformControlProofJwk(KeyPair pair) {
+        return JWKBuilder.create().kid("fedsetup-test-key").algorithm(Algorithm.RS256).rsa(pair.getPublic());
     }
 
     private static KeycloakSession installationAuthorizationSession() {
