@@ -6,9 +6,9 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 
+import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
-import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.representations.AccessToken;
 import org.keycloak.scim.protocol.response.ErrorResponse;
 import org.keycloak.scim.resource.ResourceTypeRepresentation;

@@ -10,13 +10,13 @@ package org.keycloak.scim.services;
 import java.util.List;
 import java.util.Set;
 
-import org.junit.jupiter.api.Test;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.scim.protocol.request.PatchRequest;
 import org.keycloak.scim.resource.group.Group;
 import org.keycloak.scim.resource.user.User;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
