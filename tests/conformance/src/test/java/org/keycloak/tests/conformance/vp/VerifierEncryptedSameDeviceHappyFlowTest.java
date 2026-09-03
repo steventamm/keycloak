@@ -22,9 +22,11 @@ import java.util.stream.Stream;
 
 import org.keycloak.testframework.annotations.InjectRealm;
 import org.keycloak.testframework.annotations.KeycloakIntegrationTest;
+import org.keycloak.testframework.conformance.runner.BrowserInteraction;
+import org.keycloak.testframework.conformance.runner.ConformanceModuleVariant;
+import org.keycloak.testframework.conformance.runner.ConformanceResult;
 import org.keycloak.testframework.injection.LifeCycle;
 import org.keycloak.testframework.realm.ManagedRealm;
-import org.keycloak.tests.conformance.runner.ConformanceModuleVariant;
 
 /**
  * The verifier accepts a valid same device SD-JWT VC presentation returned as an encrypted
@@ -46,6 +48,7 @@ public class VerifierEncryptedSameDeviceHappyFlowTest extends AbstractVpConforma
                         "client_id_prefix", "x509_hash",
                         "request_method", "request_uri_signed",
                         "response_mode", "direct_post.jwt"),
-                "oid4vp-1final-verifier-happy-flow");
+                "oid4vp-1final-verifier-happy-flow",
+                ConformanceResult.REVIEW, BrowserInteraction.NONE);
     }
 }

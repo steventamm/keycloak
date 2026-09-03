@@ -45,6 +45,7 @@ import org.keycloak.util.JsonSerialization;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import org.jboss.logging.Logger;
 
+import static org.keycloak.scim.resource.spi.ScimResourceTypeProvider.DEFAULT_MAX_RESULTS;
 import static org.keycloak.scim.services.Error.badRequest;
 import static org.keycloak.scim.services.Error.forbidden;
 import static org.keycloak.scim.services.Error.invalidSyntax;
@@ -148,6 +149,8 @@ public class ScimResourceTypeResource<R extends ResourceTypeRepresentation> {
         if (!allowsRead()) return forbidden();
         logger.debugf("SCIM SEARCH %s filter=%s", resourceTypeProvider.getName(), searchRequest.getFilter());
         try {
+            normalizePagination(searchRequest);
+
             Stream<R> stream = resourceTypeProvider.getAll(searchRequest)
                     .peek(this::setMetadata);
 
@@ -158,12 +161,12 @@ public class ScimResourceTypeResource<R extends ResourceTypeRepresentation> {
             }
 
             List<R> resources = stream.toList();
-            Long totalResults = resourceTypeProvider.count(searchRequest);
+            Long totalResults = resourceTypeProvider.count(searchRequest, resources.size());
             ListResponse<R> response = new ListResponse<>();
 
             response.setResources(resources);
             response.setTotalResults(totalResults.intValue());
-            response.setStartIndex(searchRequest.getStartIndex() != null ? searchRequest.getStartIndex() : 1);
+            response.setStartIndex(searchRequest.getStartIndex());
             response.setItemsPerPage(resources.size());
 
             return Response.ok().entity(response).build();
@@ -444,5 +447,19 @@ public class ScimResourceTypeResource<R extends ResourceTypeRepresentation> {
 
     private static boolean isGroup(Class<?> resourceType) {
         return Group.class.isAssignableFrom(resourceType);
+    /**
+     * Normalizes pagination parameters on the given request in place:
+     * Defaults startIndex to 1 (SCIM based) if unset, and count to the range [0, DEFAULT_MAX_RESULTS]
+     *
+     * @param searchRequest the request to normalize, mutated directly
+     */
+    private void normalizePagination(SearchRequest searchRequest) {
+        Integer startIndex = searchRequest.getStartIndex();
+        startIndex = startIndex != null ? Math.max(1, startIndex) : 1;
+        searchRequest.setStartIndex(startIndex);
+
+        Integer count = searchRequest.getCount();
+        count = count != null ? Math.max(0, Math.min(count, DEFAULT_MAX_RESULTS)) : DEFAULT_MAX_RESULTS;
+        searchRequest.setCount(count);
     }
 }
