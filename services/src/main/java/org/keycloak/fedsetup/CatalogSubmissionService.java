@@ -13,11 +13,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-import org.apache.http.client.config.RequestConfig;
-import org.keycloak.fedsetup.representation.FedSetupSubmissionProfile;
 import org.keycloak.fedsetup.representation.CatalogDiscovery;
 import org.keycloak.fedsetup.representation.CatalogSubmission;
 import org.keycloak.fedsetup.representation.CatalogTarget;
+import org.keycloak.fedsetup.representation.FedSetupSubmissionProfile;
 import org.keycloak.http.simple.SimpleHttp;
 import org.keycloak.http.simple.SimpleHttpRequest;
 import org.keycloak.http.simple.SimpleHttpResponse;
@@ -27,6 +26,7 @@ import org.keycloak.util.JsonSerialization;
 import org.keycloak.vault.VaultStringSecret;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.apache.http.client.config.RequestConfig;
 
 /** Default adapter for the standard FedSetup Submission API. */
 public final class CatalogSubmissionService {

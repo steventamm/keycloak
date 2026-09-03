@@ -14,8 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.jboss.resteasy.specimpl.ResteasyUriInfo;
-import org.junit.jupiter.api.Test;
 import org.keycloak.fedsetup.representation.CatalogDiscovery;
 import org.keycloak.fedsetup.representation.CatalogSubmission;
 import org.keycloak.fedsetup.representation.CatalogTarget;
@@ -25,9 +23,12 @@ import org.keycloak.models.KeycloakContext;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakUriInfo;
 import org.keycloak.models.RealmModel;
-import org.keycloak.util.JsonSerialization;
 import org.keycloak.urls.HostnameProvider;
 import org.keycloak.urls.UrlType;
+import org.keycloak.util.JsonSerialization;
+
+import org.jboss.resteasy.specimpl.ResteasyUriInfo;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

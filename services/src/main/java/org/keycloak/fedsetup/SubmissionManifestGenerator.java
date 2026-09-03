@@ -18,8 +18,8 @@ import jakarta.ws.rs.core.UriInfo;
 
 import org.keycloak.OAuth2Constants;
 import org.keycloak.common.Profile;
-import org.keycloak.fedsetup.representation.FedSetupSubmissionProfile;
 import org.keycloak.fedsetup.representation.FedSetupSubmissionIdJagResourceBinding;
+import org.keycloak.fedsetup.representation.FedSetupSubmissionProfile;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;

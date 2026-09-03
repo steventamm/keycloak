@@ -197,6 +197,7 @@ export async function clickSaveMapper(page: Page) {
   const saveMapperButton = page.getByTestId("new-mapper-save-button");
   await expect(saveMapperButton).toBeEnabled();
   await saveMapperButton.click();
+  await assertNotificationMessage(page, "Mapper created successfully.");
   await expect(page).toHaveURL(/.*mappers(\/[^/]+)?$/);
 
   // Some mapper forms stay on /mappers/:id after save. Navigate back to the list
