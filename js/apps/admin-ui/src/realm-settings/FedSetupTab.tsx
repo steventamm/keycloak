@@ -191,9 +191,7 @@ export const FedSetupTab = () => {
           <Title headingLevel="h2">FedSetup Application profile</Title>
           {applicationProfile ? (
             <TextContent>
-              <Text>
-                {applicationProfile.applicationTenantId}
-              </Text>
+              <Text>{applicationProfile.applicationTenantId}</Text>
               <Text component={TextVariants.small}>
                 {applicationProfile.canonicalBaseUri}
               </Text>

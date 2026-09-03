@@ -447,6 +447,8 @@ public class ScimResourceTypeResource<R extends ResourceTypeRepresentation> {
 
     private static boolean isGroup(Class<?> resourceType) {
         return Group.class.isAssignableFrom(resourceType);
+    }
+
     /**
      * Normalizes pagination parameters on the given request in place:
      * Defaults startIndex to 1 (SCIM based) if unset, and count to the range [0, DEFAULT_MAX_RESULTS]
