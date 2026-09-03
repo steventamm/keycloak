@@ -171,10 +171,11 @@ class FedSetupExpressConfigurationTest {
                 "capabilities", profile.getCapabilities()));
         assertEquals(200, putProfile.status(), putProfile.body());
 
-        Map<?, ?> discovery = getPublic("/realms/" + applicationRealm.getName() + "/.well-known/fedsetup", Map.class);
+        Map<?, ?> discovery = getPublic("/.well-known/fedsetup/realms/" + applicationRealm.getName(), Map.class);
         assertEquals(profile.getCanonicalBaseUri(), discovery.get("application_base_uri"));
         assertTrue(((List<?>) discovery.get("direct_installation_trust_profiles_supported"))
                 .contains(FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI));
+        assertPublicStatus("/realms/" + applicationRealm.getName() + "/.well-known/fedsetup", 404);
 
         FedSetupTrustPreAuthorization preAuthorization = new FedSetupTrustPreAuthorization();
         preAuthorization.setApplicationTenantId(applicationTenant);
@@ -637,6 +638,14 @@ class FedSetupExpressConfigurationTest {
                 String body = response.readEntity(String.class);
                 assertEquals(200, response.getStatus(), body);
                 return read(body, type);
+            }
+        }
+    }
+
+    private void assertPublicStatus(String path, int expectedStatus) throws Exception {
+        try (Client client = client()) {
+            try (Response response = client.target(keycloakUrls.getBase() + path).request().get()) {
+                assertEquals(expectedStatus, response.getStatus(), response.readEntity(String.class));
             }
         }
     }

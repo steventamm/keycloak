@@ -15,7 +15,7 @@ import org.keycloak.provider.EnvironmentDependentProviderFactory;
 import org.keycloak.wellknown.WellKnownProvider;
 import org.keycloak.wellknown.WellKnownProviderFactory;
 
-/** Exposes realm-scoped FedSetup discovery only when the preview feature and profile are enabled. */
+/** Exposes RFC 8414 root-scoped FedSetup discovery only when the preview feature and profile are enabled. */
 public class FedSetupWellKnownProviderFactory implements WellKnownProviderFactory, EnvironmentDependentProviderFactory {
 
     @Override
@@ -30,5 +30,6 @@ public class FedSetupWellKnownProviderFactory implements WellKnownProviderFactor
     @Override public void postInit(KeycloakSessionFactory factory) { }
     @Override public void close() { }
     @Override public String getId() { return FedSetupConstants.WELL_KNOWN_ALIAS; }
+    @Override public boolean isAvailableViaServerMetadata() { return true; }
     @Override public boolean isSupported(Config.Scope config) { return Profile.isFeatureEnabled(Profile.Feature.FED_SETUP_CONFIGURATION); }
 }

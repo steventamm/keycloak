@@ -123,6 +123,14 @@ class FedSetupSecurityTest {
     }
 
     @Test
+    void resolvesApplicationDiscoveryUsingTheRfc8414InsertionAlgorithm() {
+        assertEquals("https://application.example/.well-known/fedsetup",
+                FedSetupApplicationDiscoveryService.discoveryUri("https://application.example"));
+        assertEquals("https://application.example/.well-known/fedsetup/realms/acme",
+                FedSetupApplicationDiscoveryService.discoveryUri("https://application.example/realms/acme/"));
+    }
+
+    @Test
     void canonicalizesRegisteredRedirectUrisWithoutChangingTheirQuery() {
         assertEquals("https://example.com/callback?tenant=a", FedSetupUri.canonicalizeRedirectUri("HTTPS://EXAMPLE.COM:443/callback?tenant=a"));
         assertThrows(FedSetupValidationException.class, () -> FedSetupUri.canonicalizeRedirectUri("https://example.com/callback#fragment"));

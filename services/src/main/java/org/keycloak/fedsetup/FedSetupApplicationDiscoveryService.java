@@ -27,7 +27,7 @@ public final class FedSetupApplicationDiscoveryService {
 
     public static FedSetupDiscoveryRepresentation discover(KeycloakSession session, String applicationBaseUri) {
         String baseUri = FedSetupUri.canonicalize(applicationBaseUri);
-        String discoveryUri = baseUri.endsWith("/") ? baseUri + ".well-known/fedsetup" : baseUri + "/.well-known/fedsetup";
+        String discoveryUri = discoveryUri(baseUri);
         FedSetupUri.requirePublicAddress(discoveryUri, "Application discovery source");
         RequestConfig noRedirects = RequestConfig.copy(RequestConfig.DEFAULT).setRedirectsEnabled(false).build();
         try (SimpleHttpResponse response = SimpleHttp.create(session).withRequestConfig(noRedirects).doGet(discoveryUri).acceptJson().asResponse()) {
@@ -39,6 +39,17 @@ public final class FedSetupApplicationDiscoveryService {
             if (e instanceof FedSetupValidationException validation) throw validation;
             throw new FedSetupValidationException("Unable to retrieve Application FedSetup discovery", e);
         }
+    }
+
+    /** RFC 8414 inserts the well-known suffix before an Application Base URI path. */
+    static String discoveryUri(String applicationBaseUri) {
+        URI baseUri = URI.create(FedSetupUri.canonicalize(applicationBaseUri));
+        String path = baseUri.getRawPath();
+        if (path == null || "/".equals(path)) {
+            path = "";
+        }
+        return baseUri.getScheme() + "://" + baseUri.getRawAuthority() + "/.well-known/"
+                + FedSetupConstants.WELL_KNOWN_ALIAS + path;
     }
 
     private static void validate(String applicationBaseUri, FedSetupDiscoveryRepresentation document) {

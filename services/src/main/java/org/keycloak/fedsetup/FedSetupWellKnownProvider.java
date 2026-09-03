@@ -30,6 +30,9 @@ public class FedSetupWellKnownProvider implements WellKnownProvider {
     @Override
     public Object getConfig() {
         RealmModel realm = session.getContext().getRealm();
+        if (isSupersededRealmScopedRequest(realm)) {
+            throw new NotFoundException();
+        }
         FedSetupConfigurationProfile profile = new RealmFedSetupStore(realm).getApplicationProfile();
         if (profile == null) {
             throw new NotFoundException();
@@ -66,6 +69,12 @@ public class FedSetupWellKnownProvider implements WellKnownProvider {
         result.setInstallationAuthorizationEndpoint(FedSetupUrls.frontAuthorize(uriInfo, realm));
         result.setInstallationTokenEndpoint(FedSetupUrls.frontToken(uriInfo, realm));
         return result;
+    }
+
+    private boolean isSupersededRealmScopedRequest(RealmModel realm) {
+        String requestPath = session.getContext().getUri().getRequestUri().getPath();
+        return requestPath != null && requestPath.endsWith("/realms/" + realm.getName()
+                + "/.well-known/" + FedSetupConstants.WELL_KNOWN_ALIAS);
     }
 
     @Override
