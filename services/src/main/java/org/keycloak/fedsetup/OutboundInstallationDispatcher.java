@@ -7,7 +7,6 @@
  */
 package org.keycloak.fedsetup;
 
-import java.io.IOException;
 import java.net.URI;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -33,7 +32,6 @@ import org.keycloak.jose.jws.JWSBuilder;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
-import org.keycloak.protocol.oidc.OIDCAdvancedConfigWrapper;
 import org.keycloak.protocol.saml.SamlClient;
 import org.keycloak.protocol.saml.SamlProtocol;
 import org.keycloak.representations.JsonWebToken;

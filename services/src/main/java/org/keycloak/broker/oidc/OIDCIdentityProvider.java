@@ -98,7 +98,6 @@ import org.keycloak.util.Booleans;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.util.Strings;
 import org.keycloak.util.TokenUtil;
-import org.keycloak.vault.VaultStringSecret;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.jboss.logging.Logger;
