@@ -66,8 +66,8 @@ public final class OutboundTrustDispatcher {
     /** Creates browser state and returns the external Application authorization endpoint URI. */
     public static String startFrontChannel(KeycloakSession session, RealmModel realm, RealmFedSetupStore store, DirectInstallationTrust trust) {
         validateLocalTrust(session, realm, trust, FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI);
-        String authorizationEndpoint = required(trust.getInstallationAuthorizationEndpoint(), "installation_authorization_endpoint");
-        String tokenEndpoint = required(trust.getInstallationTokenEndpoint(), "installation_token_endpoint");
+        String authorizationEndpoint = required(trust.getInstallationConsentEndpoint(), "installation_consent_endpoint");
+        String tokenEndpoint = required(trust.getInstallationConfirmationEndpoint(), "installation_confirmation_endpoint");
         FedSetupFrontChannelTransaction transaction = new FedSetupFrontChannelTransaction();
         transaction.setTrustId(trust.getId());
         transaction.setApplicationTenantId(trust.getApplicationTenantId());
@@ -87,7 +87,7 @@ public final class OutboundTrustDispatcher {
                 .queryParam("idp_issuer", transaction.getIdpIssuer())
                 .queryParam("redirect_uri", transaction.getRedirectUri())
                 .queryParam("application_tenant_id", transaction.getApplicationTenantId())
-                .queryParam("capabilities", String.join(",", transaction.getCapabilities()))
+                .queryParam("authorized_capabilities", String.join(",", transaction.getCapabilities()))
                 .queryParam("provider_delegation_profiles", String.join(",", transaction.getProviderDelegationProfiles()))
                 .queryParam("federation_extension_profiles", String.join(",", transaction.getFederationExtensionProfiles()))
                 .queryParam("scope", "fedsetup-trust")
@@ -103,12 +103,9 @@ public final class OutboundTrustDispatcher {
         }
         DirectInstallationTrust trust = store.requireTrust(transaction.getTrustId());
         validateLocalTrust(session, realm, trust, FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI);
-        String assertion = clientAssertion(session, realm, transaction.getCimdUri(), transaction.getTokenEndpoint());
+        String proof = confirmationProof(session, realm, trust, code, transaction.getTokenEndpoint());
         SimpleHttpRequest request = SimpleHttp.create(session).doPost(transaction.getTokenEndpoint())
-                .param("grant_type", "authorization_code")
-                .param("code", code)
-                .param("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
-                .param("client_assertion", assertion).acceptJson();
+                .header("Authorization", "Bearer " + proof).acceptJson();
         try (SimpleHttpResponse response = request.asResponse()) {
             if (response.getStatus() != 200) throw new FedSetupValidationException("Application token endpoint returned HTTP " + response.getStatus());
             applyConfirmation(trust, confirmation(response.asString(), trust));
@@ -129,7 +126,10 @@ public final class OutboundTrustDispatcher {
                 .issuedNowWithTTL(FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS).audience(audience);
         token.setOtherClaims("idp_issuer", issuer(session, realm));
         token.setOtherClaims("application_tenant_id", trust.getApplicationTenantId());
-        token.setOtherClaims("capabilities", new ArrayList<>(trust.getCapabilities()));
+        token.setOtherClaims("htm", "POST");
+        token.setOtherClaims("htu", audience);
+        token.setOtherClaims("request_hash", InstallationAuthorizationValidator.sha256Base64Url(""));
+        token.setOtherClaims("authorized_capabilities", new ArrayList<>(trust.getCapabilities()));
         token.setOtherClaims("provider_delegation_profiles", new ArrayList<>(trust.getProviderDelegationProfiles()));
         token.setOtherClaims("federation_extension_profiles", new ArrayList<>(trust.getExtensionProfiles()));
         try {
@@ -139,15 +139,25 @@ public final class OutboundTrustDispatcher {
         }
     }
 
-    private static String clientAssertion(KeycloakSession session, RealmModel realm, String cimd, String audience) {
+    private static String confirmationProof(KeycloakSession session, RealmModel realm, DirectInstallationTrust trust, String code, String audience) {
         KeyWrapper key = session.keys().getActiveKey(realm, KeyUse.SIG, Algorithm.RS256);
         if (key == null) throw new FedSetupValidationException("Realm has no active RS256 signing key");
+        String cimd = cimdUri(session, realm);
         JsonWebToken token = new JsonWebToken().issuer(cimd).subject(cimd).audience(audience).id(UUID.randomUUID().toString())
                 .issuedNowWithTTL(FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS);
+        token.setOtherClaims("idp_issuer", trust.getIdpIssuer());
+        token.setOtherClaims("application_tenant_id", trust.getApplicationTenantId());
+        token.setOtherClaims("htm", "POST");
+        token.setOtherClaims("htu", audience);
+        token.setOtherClaims("request_hash", InstallationAuthorizationValidator.sha256Base64Url(""));
+        token.setOtherClaims("confirmation_code", code);
+        token.setOtherClaims("authorized_capabilities", new ArrayList<>(trust.getCapabilities()));
+        token.setOtherClaims("provider_delegation_profiles", new ArrayList<>(trust.getProviderDelegationProfiles()));
+        token.setOtherClaims("federation_extension_profiles", new ArrayList<>(trust.getExtensionProfiles()));
         try {
             return new JWSBuilder().type("JWT").kid(key.getKid()).jsonContent(token).sign(KeyWrapperUtil.createSignatureSignerContext(key));
         } catch (Exception e) {
-            throw new FedSetupValidationException("Unable to sign the front-channel client assertion", e);
+            throw new FedSetupValidationException("Unable to sign the front-channel confirmation proof", e);
         }
     }
 

@@ -7,8 +7,6 @@
  */
 package org.keycloak.fedsetup;
 
-import java.util.Collection;
-import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
@@ -20,6 +18,7 @@ import org.keycloak.jose.jws.JWSInput;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.representations.JsonWebToken;
+import org.keycloak.services.Urls;
 
 /** Implements Section 5.1's pre-authorized CIMD-backed Trust Establishment Request. */
 public final class BackChannelTrustService {
@@ -41,8 +40,9 @@ public final class BackChannelTrustService {
         String requestHash = InstallationAuthorizationValidator.sha256(compact);
         JsonWebToken unverified = unverified(compact);
         String cimdUri = requiredIssuer(unverified);
-        String idpIssuer = claim(unverified, "idp_issuer");
-        String applicationTenantId = claim(unverified, "application_tenant_id");
+        String idpIssuer = InstallationAuthorizationValidator.stringClaim(unverified, "idp_issuer", "Trust Establishment Request");
+        String applicationTenantId = InstallationAuthorizationValidator.stringClaim(unverified, "application_tenant_id",
+                "Trust Establishment Request");
         String canonicalIdpIssuer = FedSetupUri.canonicalize(idpIssuer);
         String existingId = store.getIdempotencyResult("trust:" + idempotencyKey, applicationTenantId, canonicalIdpIssuer, requestHash);
         if (existingId != null) return store.requireTrust(existingId);
@@ -54,16 +54,27 @@ public final class BackChannelTrustService {
 
         JsonWebToken token = InstallationAuthorizationValidator.verifyCimdJwt(session, compact, preAuthorization.getCimdUri(),
                 preAuthorization.getCimdUri(), endpoint);
-        idpIssuer = FedSetupUri.canonicalize(claim(token, "idp_issuer"));
-        applicationTenantId = claim(token, "application_tenant_id");
+        idpIssuer = FedSetupUri.canonicalize(InstallationAuthorizationValidator.stringClaim(token, "idp_issuer",
+                "Trust Establishment Request"));
+        applicationTenantId = InstallationAuthorizationValidator.stringClaim(token, "application_tenant_id",
+                "Trust Establishment Request");
         if (!Objects.equals(preAuthorization.getIdpIssuer(), idpIssuer)
                 || !Objects.equals(preAuthorization.getApplicationTenantId(), applicationTenantId)) {
             throw new FedSetupValidationException("Trust Establishment Request does not match the pre-authorization");
         }
-        requireLifetime(token);
-        Set<String> capabilities = stringSet(token, "capabilities");
-        Set<String> providerProfiles = stringSet(token, "provider_delegation_profiles");
-        Set<String> federationProfiles = stringSet(token, "federation_extension_profiles");
+        InstallationAuthorizationValidator.requireLifetime(token, "Trust Establishment Request");
+        if (!"POST".equals(InstallationAuthorizationValidator.stringClaim(token, "htm", "Trust Establishment Request"))
+                || !Objects.equals(endpoint, InstallationAuthorizationValidator.stringClaim(token, "htu", "Trust Establishment Request"))
+                || !Objects.equals(InstallationAuthorizationValidator.sha256Base64Url(""),
+                        InstallationAuthorizationValidator.stringClaim(token, "request_hash", "Trust Establishment Request"))) {
+            throw new FedSetupValidationException("Trust Establishment Request is not bound to this endpoint");
+        }
+        Set<String> capabilities = InstallationAuthorizationValidator.stringSetOrEmpty(token, "authorized_capabilities",
+                "Trust Establishment Request");
+        Set<String> providerProfiles = InstallationAuthorizationValidator.stringSetOrEmpty(token, "provider_delegation_profiles",
+                "Trust Establishment Request");
+        Set<String> federationProfiles = InstallationAuthorizationValidator.stringSetOrEmpty(token, "federation_extension_profiles",
+                "Trust Establishment Request");
         if (!preAuthorization.getCapabilities().containsAll(capabilities)
                 || !preAuthorization.getProviderDelegationProfiles().containsAll(providerProfiles)
                 || !preAuthorization.getFederationExtensionProfiles().containsAll(federationProfiles)) {
@@ -83,7 +94,9 @@ public final class BackChannelTrustService {
         DirectInstallationTrust trust = new DirectInstallationTrust();
         trust.setApplicationTenantId(applicationTenantId);
         trust.setCanonicalApplicationBaseUri(profile.getCanonicalBaseUri());
+        trust.setAuthorizationServer(Urls.realmIssuer(session.getContext().getUri().getBaseUri(), realm.getName()));
         trust.setConfigurationEndpoint(FedSetupUrls.resourceBase(session.getContext().getUri(), realm) + "/connections");
+        trust.setConfigurationResource(FedSetupUrls.resourceBase(session.getContext().getUri(), realm));
         trust.setConnectionEndpointTemplate(FedSetupUrls.resourceBase(session.getContext().getUri(), realm) + "/connections/{connection_id}");
         trust.setIdpIssuer(idpIssuer);
         trust.setTrustProfileUri(FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI);
@@ -92,6 +105,7 @@ public final class BackChannelTrustService {
         trust.setProviderDelegationProfiles(providerProfiles);
         trust.setExtensionProfiles(federationProfiles);
         DirectInstallationTrust created = store.createTrust(trust);
+        FedSetupConfigurationClientService.authorize(session, realm, created);
         preAuthorization.setConsumed(true);
         store.updateTrustPreAuthorization(preAuthorization, preAuthorization.getVersion());
         store.putIdempotencyResult("trust:" + idempotencyKey, applicationTenantId, idpIssuer, created.getId(), requestHash);
@@ -113,37 +127,4 @@ public final class BackChannelTrustService {
         return token.getIssuer();
     }
 
-    private static String claim(JsonWebToken token, String name) {
-        Object value = token.getOtherClaims().get(name);
-        if (!(value instanceof String string) || string.isBlank()) {
-            throw new FedSetupValidationException("Trust Establishment Request is missing " + name);
-        }
-        return string;
-    }
-
-    private static Set<String> stringSet(JsonWebToken token, String name) {
-        Object value = token.getOtherClaims().get(name);
-        if (!(value instanceof Collection<?> values)) {
-            throw new FedSetupValidationException("Trust Establishment Request is missing " + name);
-        }
-        Set<String> result = new LinkedHashSet<>();
-        for (Object item : values) {
-            if (!(item instanceof String string) || string.isBlank()) {
-                throw new FedSetupValidationException("Trust Establishment Request has invalid " + name);
-            }
-            result.add(string);
-        }
-        return result;
-    }
-
-    private static void requireLifetime(JsonWebToken token) {
-        if (token.getId() == null || token.getId().isBlank() || token.getIat() == null || token.getExp() == null) {
-            throw new FedSetupValidationException("Trust Establishment Request is missing jti, iat, or exp");
-        }
-        long now = Time.currentTime();
-        if (token.getExp() <= now || token.getIat() > now + 10
-                || token.getExp() - token.getIat() > FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS) {
-            throw new FedSetupValidationException("Trust Establishment Request lifetime is invalid");
-        }
-    }
 }

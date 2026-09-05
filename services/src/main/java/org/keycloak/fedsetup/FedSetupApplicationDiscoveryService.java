@@ -67,6 +67,13 @@ public final class FedSetupApplicationDiscoveryService {
             throw new FedSetupValidationException("Application connection_endpoint_template is not on the canonical Application origin");
         }
         document.setConnectionEndpointTemplate(template);
+        String authorizationServer = FedSetupUri.canonicalize(document.getAuthorizationServer());
+        String configurationResource = FedSetupUri.canonicalize(document.getConfigurationResource());
+        if (!sameOrigin(applicationBaseUri, configurationResource)) {
+            throw new FedSetupValidationException("Application configuration resource is not on the canonical Application origin");
+        }
+        document.setAuthorizationServer(authorizationServer);
+        document.setConfigurationResource(configurationResource);
         if (document.getProtocolsSupported() == null || document.getProtocolsSupported().isEmpty()
                 || !Set.of("oidc", "saml").containsAll(document.getProtocolsSupported())) {
             throw new FedSetupValidationException("Application discovery document has no supported OIDC or SAML protocol");
@@ -80,8 +87,8 @@ public final class FedSetupApplicationDiscoveryService {
             requireEndpoint(document.getInstallationTrustEndpoint(), applicationBaseUri, "installation_trust_endpoint");
         }
         if (profiles.contains(FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI)) {
-            requireEndpoint(document.getInstallationAuthorizationEndpoint(), applicationBaseUri, "installation_authorization_endpoint");
-            requireEndpoint(document.getInstallationTokenEndpoint(), applicationBaseUri, "installation_token_endpoint");
+            requireEndpoint(document.getInstallationConsentEndpoint(), applicationBaseUri, "installation_consent_endpoint");
+            requireEndpoint(document.getInstallationConfirmationEndpoint(), applicationBaseUri, "installation_confirmation_endpoint");
         }
     }
 

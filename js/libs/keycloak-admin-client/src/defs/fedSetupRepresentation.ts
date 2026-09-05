@@ -11,14 +11,17 @@ export interface DirectInstallationTrustRepresentation {
   id?: string;
   applicationTenantId?: string;
   canonicalApplicationBaseUri?: string;
+  authorizationServer?: string;
   configurationEndpoint?: string;
+  configurationResource?: string;
+  configurationResource?: string;
   connectionEndpointTemplate?: string;
   idpIssuer?: string;
   trustProfileUri?: string;
   installationRuntimeCimdUri?: string;
   installationTrustEndpoint?: string;
-  installationAuthorizationEndpoint?: string;
-  installationTokenEndpoint?: string;
+  installationConsentEndpoint?: string;
+  installationConfirmationEndpoint?: string;
   signingKeyJwk?: string;
   runtimeJwksUri?: string;
   runtimeSigningCertificate?: string;
@@ -47,27 +50,6 @@ export interface FedSetupRuntimeRepresentation {
   idp_issuer: string;
   cimd_uri: string;
   front_channel_callback: string;
-}
-
-export interface DirectInstallationTrustInvitationRequest {
-  idpIssuer: string;
-  signingKeyJwk: string;
-  runtimeJwksUri?: string;
-  runtimeSigningCertificate?: string;
-  capabilities: string[];
-  extensionProfiles: string[];
-  expiresAt?: number;
-}
-
-export interface DirectInstallationTrustApprovalRequest {
-  invitation: string;
-  approval?: string;
-}
-
-export interface DirectInstallationTrustConsentResult {
-  invitation?: string;
-  approval?: string;
-  trust?: DirectInstallationTrustRepresentation;
 }
 
 export interface FedSetupConnectionRepresentation {

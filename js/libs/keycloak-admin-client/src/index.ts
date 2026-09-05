@@ -14,9 +14,6 @@ export { FedSetup } from "./resources/fedSetup.js";
 export { Ssf } from "./resources/ssf.js";
 export type {
   DirectInstallationTrustRepresentation,
-  DirectInstallationTrustInvitationRequest,
-  DirectInstallationTrustApprovalRequest,
-  DirectInstallationTrustConsentResult,
   FedSetupConfigurationProfile,
   FedSetupConnectionRepresentation,
   FedSetupInstallationRepresentation,

@@ -68,13 +68,13 @@ public final class InstallationAuthorizationValidator {
         boolean cimd = trust.getInstallationRuntimeCimdUri() != null && !trust.getInstallationRuntimeCimdUri().isBlank();
         JsonWebToken token = verify(session, authorization.substring("Bearer ".length()), trust, cimd ? uri : null);
         String bodyHash = cimd ? sha256Base64Url(requestBody) : sha256(requestBody);
-        String tokenTenant = stringClaim(token, "application_tenant_id");
-        String tokenMethod = stringClaim(token, cimd ? "htm" : "method");
-        String tokenUri = stringClaim(token, cimd ? "htu" : "uri");
-        String tokenHash = stringClaim(token, "request_hash");
+        String tokenTenant = stringClaim(token, "application_tenant_id", "Installation Authorization");
+        String tokenMethod = stringClaim(token, cimd ? "htm" : "method", "Installation Authorization");
+        String tokenUri = stringClaim(token, cimd ? "htu" : "uri", "Installation Authorization");
+        String tokenHash = stringClaim(token, "request_hash", "Installation Authorization");
         Set<String> tokenCapabilities = stringSetClaimOrEmpty(token, "capabilities");
         Set<String> tokenProfiles = stringSetClaimOrEmpty(token, cimd ? "federation_extension_profiles" : "extension_profiles");
-        String tokenIdpIssuer = cimd ? stringClaim(token, "idp_issuer") : token.getIssuer();
+        String tokenIdpIssuer = cimd ? stringClaim(token, "idp_issuer", "Installation Authorization") : token.getIssuer();
 
         if (!Objects.equals(trust.getIdpIssuer(), tokenIdpIssuer) || !Objects.equals(applicationTenantId, tokenTenant)
                 || !Objects.equals(method, tokenMethod) || !Objects.equals(uri, tokenUri)
@@ -85,13 +85,7 @@ public final class InstallationAuthorizationValidator {
                 || !trust.getExtensionProfiles().containsAll(tokenProfiles) || !tokenProfiles.containsAll(requestedProfiles)) {
             throw new FedSetupValidationException("Installation Authorization grants insufficient capabilities or extension profiles");
         }
-        if (token.getId() == null || token.getId().isBlank() || token.getIat() == null || token.getExp() == null) {
-            throw new FedSetupValidationException("Installation Authorization is missing jti, iat, or exp");
-        }
-        long now = Time.currentTime();
-        if (token.getExp() <= now || token.getIat() > now + 10 || token.getExp() - token.getIat() > FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS) {
-            throw new FedSetupValidationException("Installation Authorization lifetime is invalid");
-        }
+        requireLifetime(token, "Installation Authorization");
         ValidatedAuthorization validated = new ValidatedAuthorization(token.getId(), bodyHash, tokenCapabilities, tokenProfiles, token.getExp());
         if (consumeReplay) {
             consume(session, validated);
@@ -176,12 +170,23 @@ public final class InstallationAuthorizationValidator {
         }
     }
 
-    private static String stringClaim(JsonWebToken token, String name) {
+    static String stringClaim(JsonWebToken token, String name, String credentialName) {
         Object value = token.getOtherClaims().get(name);
         if (!(value instanceof String string) || string.isBlank()) {
-            throw new FedSetupValidationException("Installation Authorization is missing " + name);
+            throw new FedSetupValidationException(credentialName + " is missing " + name);
         }
         return string;
+    }
+
+    static void requireLifetime(JsonWebToken token, String credentialName) {
+        if (token.getId() == null || token.getId().isBlank() || token.getIat() == null || token.getExp() == null) {
+            throw new FedSetupValidationException(credentialName + " is missing jti, iat, or exp");
+        }
+        long now = Time.currentTime();
+        if (token.getExp() <= now || token.getIat() > now + 10
+                || token.getExp() - token.getIat() > FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS) {
+            throw new FedSetupValidationException(credentialName + " lifetime is invalid");
+        }
     }
 
     private static Set<String> stringSetClaim(JsonWebToken token, String name) {
@@ -201,6 +206,23 @@ public final class InstallationAuthorizationValidator {
 
     private static Set<String> stringSetClaimOrEmpty(JsonWebToken token, String name) {
         return token.getOtherClaims().containsKey(name) ? stringSetClaim(token, name) : Set.of();
+    }
+
+    /** Parses an optional string-array claim while retaining the caller's protocol-specific error label. */
+    static Set<String> stringSetOrEmpty(JsonWebToken token, String name, String credentialName) {
+        Object value = token.getOtherClaims().get(name);
+        if (value == null) return Set.of();
+        if (!(value instanceof Collection<?> values)) {
+            throw new FedSetupValidationException(credentialName + " has invalid " + name);
+        }
+        Set<String> result = new LinkedHashSet<>();
+        for (Object item : values) {
+            if (!(item instanceof String string) || string.isBlank()) {
+                throw new FedSetupValidationException(credentialName + " has invalid " + name);
+            }
+            result.add(string);
+        }
+        return result;
     }
 
     public record ValidatedAuthorization(String id, String requestHash, Set<String> capabilities, Set<String> extensionProfiles,

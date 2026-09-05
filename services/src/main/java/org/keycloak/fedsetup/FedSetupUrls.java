@@ -30,11 +30,11 @@ public final class FedSetupUrls {
         return resourceBase(uriInfo, realm) + "/trust";
     }
 
-    public static String frontAuthorize(UriInfo uriInfo, RealmModel realm) {
+    public static String frontConsent(UriInfo uriInfo, RealmModel realm) {
         return resourceBase(uriInfo, realm) + "/front/authorize";
     }
 
-    public static String frontToken(UriInfo uriInfo, RealmModel realm) {
+    public static String frontConfirmation(UriInfo uriInfo, RealmModel realm) {
         return resourceBase(uriInfo, realm) + "/front/token";
     }
 

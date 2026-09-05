@@ -1,8 +1,5 @@
 import type {
   DirectInstallationTrustRepresentation,
-  DirectInstallationTrustInvitationRequest,
-  DirectInstallationTrustApprovalRequest,
-  DirectInstallationTrustConsentResult,
   FedSetupConfigurationProfile,
   FedSetupConnectionRepresentation,
   FedSetupInstallationRepresentation,
@@ -64,21 +61,6 @@ export class FedSetup extends Resource<{ realm?: string }> {
     FedSetupTrustPreAuthorizationRepresentation,
     FedSetupTrustPreAuthorizationRepresentation
   >({ method: "POST", path: "/trust-pre-authorizations" });
-
-  public createTrustInvitation = this.makeRequest<
-    DirectInstallationTrustInvitationRequest,
-    DirectInstallationTrustConsentResult
-  >({ method: "POST", path: "/trust-invitations" });
-
-  public approveTrustInvitation = this.makeRequest<
-    DirectInstallationTrustApprovalRequest,
-    DirectInstallationTrustConsentResult
-  >({ method: "POST", path: "/trust-invitations/approve" });
-
-  public consumeTrustInvitation = this.makeRequest<
-    DirectInstallationTrustApprovalRequest,
-    DirectInstallationTrustRepresentation
-  >({ method: "POST", path: "/trust-invitations/consume" });
 
   public getConnections = this.makeRequest<
     void,

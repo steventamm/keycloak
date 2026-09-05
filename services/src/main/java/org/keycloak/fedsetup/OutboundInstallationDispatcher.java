@@ -72,7 +72,7 @@ public final class OutboundInstallationDispatcher {
             String target = create ? installation.getConfigurationEndpoint()
                     : connectionEndpoint(trust, installation.getConfigurationEndpoint(), installation.getRemoteConnectionId());
             String body = JsonSerialization.valueAsString(request);
-            String authorization = authorization(trust, create ? "POST" : "PATCH", target, body, request);
+            String authorization = configurationAccessToken(trust);
             SimpleHttpRequest http = (create ? SimpleHttp.create(session).doPost(target) : SimpleHttp.create(session).doPatch(target))
                     .header("Authorization", "Bearer " + authorization)
                     .header("Content-Type", MediaType.APPLICATION_JSON)
@@ -129,7 +129,7 @@ public final class OutboundInstallationDispatcher {
                 return store.updateInstallation(installation, previousVersion);
             }
             String target = connectionEndpoint(trust, installation.getConfigurationEndpoint(), installation.getRemoteConnectionId());
-            String authorization = authorization(trust, "DELETE", target, "", null);
+            String authorization = configurationAccessToken(trust);
             SimpleHttpRequest http = SimpleHttp.create(session).doDelete(target).header("Authorization", "Bearer " + authorization);
             try (SimpleHttpResponse response = http.asResponse()) {
                 if (response.getStatus() != 204) throw new FedSetupValidationException("Application returned HTTP " + response.getStatus());
@@ -244,32 +244,47 @@ public final class OutboundInstallationDispatcher {
         return result;
     }
 
-    private String authorization(DirectInstallationTrust trust, String method, String target, String body,
-                                 InstallationConfigurationRequest request) {
+    /** Obtains the Application-AS-issued token required for every Configuration Request. */
+    private String configurationAccessToken(DirectInstallationTrust trust) {
+        if (blank(trust.getInstallationRuntimeCimdUri()) || blank(trust.getAuthorizationServer()) || blank(trust.getConfigurationResource())) {
+            throw new FedSetupValidationException("Direct Installation Trust has no CIMD-backed Configuration API client authorization");
+        }
+        FedSetupOidcMetadataResolver.RuntimeMetadata metadata = FedSetupOidcMetadataResolver.resolve(session, trust.getAuthorizationServer());
+        String assertion = clientAssertion(metadata.tokenEndpoint());
+        SimpleHttpRequest request = SimpleHttp.create(session).doPost(metadata.tokenEndpoint())
+                .param("grant_type", "client_credentials")
+                .param("client_id", cimdUri())
+                .param("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+                .param("client_assertion", assertion)
+                .param("resource", trust.getConfigurationResource()).acceptJson();
+        try (SimpleHttpResponse response = request.asResponse()) {
+            if (response.getStatus() != 200) {
+                throw new FedSetupValidationException("Configuration authorization server returned HTTP " + response.getStatus());
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = JsonSerialization.readValue(response.asString(), Map.class);
+            Object token = result.get("access_token");
+            if (!(token instanceof String accessToken) || accessToken.isBlank()) {
+                throw new FedSetupValidationException("Configuration authorization server did not return an access_token");
+            }
+            return accessToken;
+        } catch (FedSetupValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new FedSetupValidationException("Unable to obtain a Configuration API access token", e);
+        }
+    }
+
+    private String clientAssertion(String tokenEndpoint) {
         KeyWrapper key = session.keys().getActiveKey(realm, KeyUse.SIG, Algorithm.RS256);
         if (key == null) throw new FedSetupValidationException("Realm has no active RS256 signing key");
-        boolean cimd = trust.getInstallationRuntimeCimdUri() != null && !trust.getInstallationRuntimeCimdUri().isBlank();
-        JsonWebToken token = new JsonWebToken().issuer(cimd ? cimdUri() : issuer()).id(UUID.randomUUID().toString())
+        String cimd = cimdUri();
+        JsonWebToken token = new JsonWebToken().issuer(cimd).subject(cimd).audience(tokenEndpoint).id(UUID.randomUUID().toString())
                 .issuedNowWithTTL(FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS);
-        token.setOtherClaims("application_tenant_id", trust.getApplicationTenantId());
-        if (cimd) {
-            token.audience(target);
-            token.setOtherClaims("idp_issuer", issuer());
-            token.setOtherClaims("htm", method);
-            token.setOtherClaims("htu", target);
-            token.setOtherClaims("request_hash", InstallationAuthorizationValidator.sha256Base64Url(body));
-        } else {
-            token.setOtherClaims("method", method);
-            token.setOtherClaims("uri", target);
-            token.setOtherClaims("request_hash", InstallationAuthorizationValidator.sha256(body));
-        }
-        token.setOtherClaims("capabilities", request == null ? java.util.List.of() : request.requestedCapabilities());
-        token.setOtherClaims(cimd ? "federation_extension_profiles" : "extension_profiles",
-                request == null ? java.util.List.of() : request.getExtensionProfiles());
         try {
             return new JWSBuilder().type("JWT").kid(key.getKid()).jsonContent(token).sign(KeyWrapperUtil.createSignatureSignerContext(key));
         } catch (Exception e) {
-            throw new FedSetupValidationException("Unable to sign Installation Authorization", e);
+            throw new FedSetupValidationException("Unable to sign Configuration API client assertion", e);
         }
     }
 

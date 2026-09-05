@@ -22,6 +22,9 @@ public final class FedSetupConstants {
     public static final String ETAG_HEADER = "ETag";
     public static final String IF_MATCH_HEADER = "If-Match";
     public static final String FRONT_CHANNEL_INTERNAL_CLIENT = "fedsetup-front-channel";
+    /** Marker for the OAuth client authorization created by an installation trust. */
+    public static final String CONFIGURATION_CLIENT_ATTRIBUTE = "fedsetup.configuration-client";
+    public static final String CONFIGURATION_RESOURCE_AUDIENCE_MAPPER = "FedSetup configuration resource";
     /** The Keycloak IETF-profile runtime publishes and verifies RS256 keys only. */
     public static final String INSTALLATION_SIGNING_ALGORITHM = "RS256";
 

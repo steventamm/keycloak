@@ -16,7 +16,6 @@ import java.util.UUID;
 
 import org.keycloak.common.util.Time;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
-import org.keycloak.fedsetup.representation.DirectInstallationTrustInvitation;
 import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.fedsetup.representation.FedSetupCredentialReference;
@@ -41,8 +40,6 @@ public final class RealmFedSetupStore {
     private static final String APPLICATION_PROFILE = PREFIX + "application-profile";
     private static final String TRUST = PREFIX + "trust.";
     private static final String TRUST_INDEX = PREFIX + "trust.ids";
-    private static final String INVITATION = PREFIX + "invitation.";
-    private static final String INVITATION_INDEX = PREFIX + "invitation.ids";
     private static final String PRE_AUTHORIZATION = PREFIX + "trust-pre-authorization.";
     private static final String PRE_AUTHORIZATION_INDEX = PREFIX + "trust-pre-authorization.ids";
     private static final String FRONT_CHANNEL_TRANSACTION = PREFIX + "front-channel-transaction.";
@@ -126,41 +123,6 @@ public final class RealmFedSetupStore {
 
     public List<DirectInstallationTrust> getTrusts() {
         return readIndexed(TRUST_INDEX, TRUST, DirectInstallationTrust.class);
-    }
-
-    public DirectInstallationTrustInvitation createInvitation(DirectInstallationTrustInvitation invitation) {
-        Objects.requireNonNull(invitation, "invitation");
-        if (invitation.getId() == null) invitation.setId(UUID.randomUUID().toString());
-        if (getInvitation(invitation.getId()) != null) {
-            throw new FedSetupValidationException("Direct Installation Trust invitation already exists");
-        }
-        long now = Time.currentTime();
-        invitation.setVersion(1);
-        invitation.setCreatedAt(now);
-        invitation.setUpdatedAt(now);
-        write(INVITATION + invitation.getId(), invitation);
-        addToIndex(INVITATION_INDEX, invitation.getId());
-        return copy(invitation, DirectInstallationTrustInvitation.class);
-    }
-
-    public DirectInstallationTrustInvitation getInvitation(String id) {
-        return read(INVITATION + id, DirectInstallationTrustInvitation.class);
-    }
-
-    public DirectInstallationTrustInvitation requireInvitation(String id) {
-        DirectInstallationTrustInvitation invitation = getInvitation(id);
-        if (invitation == null) throw new FedSetupValidationException("Unknown Direct Installation Trust invitation");
-        return invitation;
-    }
-
-    public DirectInstallationTrustInvitation updateInvitation(DirectInstallationTrustInvitation invitation, long expectedVersion) {
-        DirectInstallationTrustInvitation current = requireInvitation(invitation.getId());
-        requireVersion(current.getVersion(), expectedVersion);
-        invitation.setCreatedAt(current.getCreatedAt());
-        invitation.setVersion(current.getVersion() + 1);
-        invitation.setUpdatedAt(Time.currentTime());
-        write(INVITATION + invitation.getId(), invitation);
-        return copy(invitation, DirectInstallationTrustInvitation.class);
     }
 
     public FedSetupTrustPreAuthorization createTrustPreAuthorization(FedSetupTrustPreAuthorization entry) {

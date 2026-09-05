@@ -18,7 +18,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class FedSetupDiscoveryRepresentation {
     @JsonProperty("fedsetup_version") private String fedsetupVersion;
     @JsonProperty("application_base_uri") private String applicationBaseUri;
+    @JsonProperty("authorization_server") private String authorizationServer;
     @JsonProperty("configuration_endpoint") private String configurationEndpoint;
+    @JsonProperty("configuration_resource") private String configurationResource;
     @JsonProperty("connection_endpoint_template") private String connectionEndpointTemplate;
     @JsonProperty("protocols_supported") private List<String> protocolsSupported = new ArrayList<>();
     @JsonProperty("provisioning_supported") private Boolean provisioningSupported;
@@ -32,15 +34,19 @@ public class FedSetupDiscoveryRepresentation {
     @JsonProperty("documentation_uri") private String documentationUri;
     @JsonProperty("direct_installation_trust_profiles_supported") private List<String> directInstallationTrustProfilesSupported = new ArrayList<>();
     @JsonProperty("installation_trust_endpoint") private String installationTrustEndpoint;
-    @JsonProperty("installation_authorization_endpoint") private String installationAuthorizationEndpoint;
-    @JsonProperty("installation_token_endpoint") private String installationTokenEndpoint;
+    @JsonProperty("installation_consent_endpoint") private String installationConsentEndpoint;
+    @JsonProperty("installation_confirmation_endpoint") private String installationConfirmationEndpoint;
 
     public String getFedsetupVersion() { return fedsetupVersion; }
     public void setFedsetupVersion(String value) { fedsetupVersion = value; }
     public String getApplicationBaseUri() { return applicationBaseUri; }
     public void setApplicationBaseUri(String value) { applicationBaseUri = value; }
+    public String getAuthorizationServer() { return authorizationServer; }
+    public void setAuthorizationServer(String value) { authorizationServer = value; }
     public String getConfigurationEndpoint() { return configurationEndpoint; }
     public void setConfigurationEndpoint(String value) { configurationEndpoint = value; }
+    public String getConfigurationResource() { return configurationResource; }
+    public void setConfigurationResource(String value) { configurationResource = value; }
     public String getConnectionEndpointTemplate() { return connectionEndpointTemplate; }
     public void setConnectionEndpointTemplate(String value) { connectionEndpointTemplate = value; }
     public List<String> getProtocolsSupported() { return protocolsSupported; }
@@ -67,8 +73,8 @@ public class FedSetupDiscoveryRepresentation {
     public void setDirectInstallationTrustProfilesSupported(List<String> value) { directInstallationTrustProfilesSupported = value == null ? new ArrayList<>() : new ArrayList<>(value); }
     public String getInstallationTrustEndpoint() { return installationTrustEndpoint; }
     public void setInstallationTrustEndpoint(String value) { installationTrustEndpoint = value; }
-    public String getInstallationAuthorizationEndpoint() { return installationAuthorizationEndpoint; }
-    public void setInstallationAuthorizationEndpoint(String value) { installationAuthorizationEndpoint = value; }
-    public String getInstallationTokenEndpoint() { return installationTokenEndpoint; }
-    public void setInstallationTokenEndpoint(String value) { installationTokenEndpoint = value; }
+    public String getInstallationConsentEndpoint() { return installationConsentEndpoint; }
+    public void setInstallationConsentEndpoint(String value) { installationConsentEndpoint = value; }
+    public String getInstallationConfirmationEndpoint() { return installationConfirmationEndpoint; }
+    public void setInstallationConfirmationEndpoint(String value) { installationConfirmationEndpoint = value; }
 }

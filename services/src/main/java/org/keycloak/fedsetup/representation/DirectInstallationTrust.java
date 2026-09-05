@@ -18,11 +18,13 @@ public class DirectInstallationTrust {
     private String id;
     private String applicationTenantId;
     private String canonicalApplicationBaseUri;
+    private String authorizationServer;
     private String configurationEndpoint;
+    private String configurationResource;
     private String connectionEndpointTemplate;
     private String installationTrustEndpoint;
-    private String installationAuthorizationEndpoint;
-    private String installationTokenEndpoint;
+    private String installationConsentEndpoint;
+    private String installationConfirmationEndpoint;
     private String idpIssuer;
     private String trustProfileUri;
     private String installationRuntimeCimdUri;
@@ -46,16 +48,20 @@ public class DirectInstallationTrust {
     public void setApplicationTenantId(String applicationTenantId) { this.applicationTenantId = applicationTenantId; }
     public String getCanonicalApplicationBaseUri() { return canonicalApplicationBaseUri; }
     public void setCanonicalApplicationBaseUri(String canonicalApplicationBaseUri) { this.canonicalApplicationBaseUri = canonicalApplicationBaseUri; }
+    public String getAuthorizationServer() { return authorizationServer; }
+    public void setAuthorizationServer(String value) { authorizationServer = value; }
     public String getConfigurationEndpoint() { return configurationEndpoint; }
     public void setConfigurationEndpoint(String configurationEndpoint) { this.configurationEndpoint = configurationEndpoint; }
+    public String getConfigurationResource() { return configurationResource; }
+    public void setConfigurationResource(String value) { configurationResource = value; }
     public String getConnectionEndpointTemplate() { return connectionEndpointTemplate; }
     public void setConnectionEndpointTemplate(String value) { connectionEndpointTemplate = value; }
     public String getInstallationTrustEndpoint() { return installationTrustEndpoint; }
     public void setInstallationTrustEndpoint(String installationTrustEndpoint) { this.installationTrustEndpoint = installationTrustEndpoint; }
-    public String getInstallationAuthorizationEndpoint() { return installationAuthorizationEndpoint; }
-    public void setInstallationAuthorizationEndpoint(String installationAuthorizationEndpoint) { this.installationAuthorizationEndpoint = installationAuthorizationEndpoint; }
-    public String getInstallationTokenEndpoint() { return installationTokenEndpoint; }
-    public void setInstallationTokenEndpoint(String installationTokenEndpoint) { this.installationTokenEndpoint = installationTokenEndpoint; }
+    public String getInstallationConsentEndpoint() { return installationConsentEndpoint; }
+    public void setInstallationConsentEndpoint(String value) { installationConsentEndpoint = value; }
+    public String getInstallationConfirmationEndpoint() { return installationConfirmationEndpoint; }
+    public void setInstallationConfirmationEndpoint(String value) { installationConfirmationEndpoint = value; }
     public String getIdpIssuer() { return idpIssuer; }
     public void setIdpIssuer(String idpIssuer) { this.idpIssuer = idpIssuer; }
     public String getTrustProfileUri() { return trustProfileUri; }

@@ -46,7 +46,6 @@ import org.keycloak.fedsetup.representation.FedSetupCredentialReference;
 import org.keycloak.fedsetup.representation.FedSetupFrontChannelTransaction;
 import org.keycloak.fedsetup.representation.InstallationConfigurationRequest;
 import org.keycloak.fedsetup.representation.InstallationConfigurationResponse;
-import org.keycloak.jose.jws.JWSInput;
 import org.keycloak.models.AdminRoles;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.Constants;
@@ -60,6 +59,7 @@ import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.utils.JWKSServerUtils;
 import org.keycloak.representations.oidc.OIDCClientRepresentation;
 import org.keycloak.services.Urls;
+import org.keycloak.services.managers.AppAuthManager;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.resource.RealmResourceProvider;
 import org.keycloak.urls.UrlType;
@@ -70,9 +70,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 /**
  * Application-facing Express Configuration receiver.
  *
- * <p>Every mutable request requires an authorization that has been validated
- * against a realm-local {@link DirectInstallationTrust}. The receiver never
- * fetches a request-supplied JWKS or stores an incoming secret.</p>
+ * <p>Every Configuration Request uses an Application-AS-issued OAuth access
+ * token.  Direct Installation Trust creates the client authorization for that
+ * token but is never itself a Configuration Request credential.</p>
  */
 public class FedSetupRealmResource implements RealmResourceProvider {
 
@@ -131,7 +131,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         }
     }
 
-    /** Section 5.2 authorization endpoint. The browser is sent through this realm's normal login flow. */
+    /** Section 5.2 consent endpoint. The browser is sent through this realm's normal login flow. */
     @GET
     @Path("front/authorize")
     public Response startFrontChannelTrust(@QueryParam("response_type") String responseType,
@@ -139,7 +139,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                                            @QueryParam("idp_issuer") String idpIssuer,
                                            @QueryParam("redirect_uri") String redirectUri,
                                            @QueryParam("application_tenant_id") String applicationTenantId,
-                                           @QueryParam("capabilities") String capabilityTerms,
+                                           @QueryParam("authorized_capabilities") String capabilityTerms,
                                            @QueryParam("provider_delegation_profiles") String providerProfileTerms,
                                            @QueryParam("federation_extension_profiles") String federationProfileTerms,
                                            @QueryParam("scope") String scope,
@@ -266,21 +266,14 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         }
     }
 
-    /** Section 5.2 code exchange. It is intentionally a trust confirmation, never an OAuth token response. */
+    /** Section 5.2 trust confirmation. It is intentionally not an OAuth token response. */
     @POST
     @Path("front/token")
-    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Produces(MediaType.APPLICATION_JSON)
-    public Response redeemFrontChannelTrust(@FormParam("grant_type") String grantType,
-                                            @FormParam("code") String code,
-                                            @FormParam("client_assertion_type") String clientAssertionType,
-                                            @FormParam("client_assertion") String clientAssertion) {
+    public Response redeemFrontChannelTrust(@HeaderParam("Authorization") String authorization, String body) {
         try {
-            if (!"authorization_code".equals(grantType)
-                    || !"urn:ietf:params:oauth:client-assertion-type:jwt-bearer".equals(clientAssertionType)) {
-                throw new FedSetupValidationException("grant_type and client_assertion_type are invalid");
-            }
-            DirectInstallationTrust trust = FrontChannelTrustService.redeem(session, realm, store, code, clientAssertion, requestUri());
+            requireNoBody(body, "Front-channel confirmation");
+            DirectInstallationTrust trust = FrontChannelTrustService.redeem(session, realm, store, authorization, requestUri());
             FedSetupAudit.success(session, realm, org.keycloak.events.admin.OperationType.CREATE,
                     "trust_established_front_channel", trust, null);
             return Response.ok(trustConfirmation(trust)).type(MediaType.APPLICATION_JSON).header("Cache-Control", "no-store").build();
@@ -300,14 +293,13 @@ public class FedSetupRealmResource implements RealmResourceProvider {
             InstallationConfigurationRequest request = parseRequest(body);
             validateSsoObjectCardinality(request, true);
             validateRequestEnvelope(request);
-            String applicationTenantId = unverifiedApplicationTenantId(authorization);
-            RequestAuthorization requestAuthorization = authorizeForIdempotency(authorization, "POST", body, request, applicationTenantId);
-            validateExtensions(request, requestAuthorization.authorization().extensionProfiles());
+            RequestAuthorization requestAuthorization = authorize(authorization, body, request);
+            validateExtensions(request, requestAuthorization.trust().getExtensionProfiles());
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
                 throw new FedSetupValidationException("Idempotency-Key is required");
             }
             String existingId = store.getIdempotencyResult(idempotencyKey, requestAuthorization.trust().getApplicationTenantId(),
-                    requestAuthorization.trust().getIdpIssuer(), requestAuthorization.authorization().requestHash());
+                    requestAuthorization.trust().getIdpIssuer(), requestAuthorization.requestHash());
             if (existingId != null) {
                 // Section 7.1 requires the original successful POST result,
                 // including its creation status and any first-create SCIM
@@ -318,13 +310,8 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                 throw new FedSetupValidationException("A FedSetup Connection already exists for this Direct Installation Trust");
             }
 
-            // Section 6.2 permits the one idempotent replay above.  Every
-            // new create consumes its authorization before materializing any
-            // Connection state, so a JWT cannot authorize a second create.
-            InstallationAuthorizationValidator.consume(session, requestAuthorization.authorization());
-
             FedSetupConnection connection = toConnection(request, requestAuthorization.trust(), true,
-                    requestAuthorization.authorization().extensionProfiles());
+                    requestAuthorization.trust().getExtensionProfiles());
             storeOidcCredential(connection, request);
             if (isSsoConnection(connection)) {
                 materializeBroker(connection, requestAuthorization.trust());
@@ -339,7 +326,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                 created = store.updateConnection(created, created.getVersion());
             }
             store.putIdempotencyResult(idempotencyKey, created.getApplicationTenantId(), created.getIdpIssuer(), created.getId(),
-                    requestAuthorization.authorization().requestHash());
+                    requestAuthorization.requestHash());
             FedSetupAudit.success(session, realm, org.keycloak.events.admin.OperationType.CREATE,
                     "connection_created", requestAuthorization.trust(), created);
             if (created.getCredentialReferenceId() != null || created.getScimBootstrapCredentialReferenceId() != null) {
@@ -369,9 +356,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
             if (applicationTenantId != null && !connection.getApplicationTenantId().equals(applicationTenantId)) {
                 throw new NotFoundException();
             }
-            DirectInstallationTrust trust = store.requireTrust(connection.getTrustId());
-            InstallationAuthorizationValidator.validate(session, trust, authorization, "GET", requestUri(), "", connection.getApplicationTenantId(),
-                    Set.of(), Set.of());
+            authorizeConnection(authorization, connection);
             return response(connection, Response.Status.OK);
         } catch (NotFoundException e) {
             throw e;
@@ -396,8 +381,8 @@ public class FedSetupRealmResource implements RealmResourceProvider {
             if (request.getApplicationTenantId() != null && !current.getApplicationTenantId().equals(request.getApplicationTenantId())) {
                 throw new NotFoundException();
             }
-            RequestAuthorization requestAuthorization = authorize(authorization, "PATCH", body, request, current.getApplicationTenantId());
-            validateExtensions(request, requestAuthorization.authorization().extensionProfiles());
+            RequestAuthorization requestAuthorization = authorize(authorization, body, request);
+            validateExtensions(request, requestAuthorization.trust().getExtensionProfiles());
             if (!current.getTrustId().equals(requestAuthorization.trust().getId())) {
                 throw new FedSetupValidationException("Connection is not bound to this Direct Installation Trust");
             }
@@ -423,7 +408,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
             boolean addsScim = request.getScim() != null && !current.getCapabilities().contains("scim");
             mergePatchWithCurrentConnection(request, current, replacesSso, removeScim, removeIdJag);
             Set<String> extensionProfiles = new java.util.LinkedHashSet<>(current.getExtensionProfiles());
-            extensionProfiles.addAll(requestAuthorization.authorization().extensionProfiles());
+            extensionProfiles.addAll(requestAuthorization.trust().getExtensionProfiles());
             FedSetupConnection updated = toConnection(request, requestAuthorization.trust(), replacesSso, extensionProfiles, current);
             updated.setId(current.getId());
             updated.setBrokerAlias(current.getBrokerAlias());
@@ -519,9 +504,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
             if (applicationTenantId != null && !connection.getApplicationTenantId().equals(applicationTenantId)) {
                 throw new NotFoundException();
             }
-            DirectInstallationTrust trust = store.requireTrust(connection.getTrustId());
-            InstallationAuthorizationValidator.validate(session, trust, authorization, "DELETE", requestUri(), "", connection.getApplicationTenantId(),
-                    Set.of(), Set.of());
+            DirectInstallationTrust trust = authorizeConnection(authorization, connection);
             if (!blank(connection.getBrokerAlias())) {
                 IdentityProviderModel provider = realm.getIdentityProviderByAlias(connection.getBrokerAlias());
                 if (provider != null) {
@@ -604,6 +587,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         return Map.of(
                 "application_tenant_id", trust.getApplicationTenantId(),
                 "idp_issuer", trust.getIdpIssuer(),
+                "configuration_resource", FedSetupUrls.resourceBase(session.getContext().getUri(UrlType.FRONTEND), realm),
                 "capabilities", trust.getCapabilities(),
                 "provider_delegation_profiles", trust.getProviderDelegationProfiles(),
                 "federation_extension_profiles", trust.getExtensionProfiles());
@@ -678,46 +662,45 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         }
     }
 
-    private RequestAuthorization authorize(String authorization, String method, String body, InstallationConfigurationRequest request,
-                                           String applicationTenantId) {
-        if (applicationTenantId == null || applicationTenantId.isBlank()) {
-            throw new FedSetupValidationException("Installation Authorization is missing application_tenant_id");
+    private RequestAuthorization authorize(String authorization, String body, InstallationConfigurationRequest request) {
+        FedSetupConfigurationProfile profile = store.getApplicationProfile();
+        if (profile == null) throw new FedSetupValidationException("No Application integration profile is configured");
+        AuthenticationManager.AuthResult authenticated = oauthAccessToken(authorization);
+        DirectInstallationTrust trust = store.findTrustByCimdUri(profile.getApplicationTenantId(), authenticated.client().getClientId());
+        if (trust == null || !FedSetupConfigurationClientService.isAuthorizedClient(authenticated.client(), trust)
+                || !Objects.equals(trust.getIdpIssuer(), FedSetupUri.canonicalize(request.getIdpIssuer()))) {
+            throw new FedSetupValidationException("No active Direct Installation Trust accepts this client, issuer, and Application Tenant");
         }
-        String issuer = unverifiedIssuer(authorization);
-        DirectInstallationTrust trust = store.findTrustByCimdUri(applicationTenantId, issuer);
-        if (trust == null) {
-            // Existing preview records use the IdP issuer as the JWT issuer and
-            // retain the legacy pinned-JWK validation path.
-            trust = store.findTrust(applicationTenantId, issuer);
+        if (!trust.getCapabilities().containsAll(request.requestedCapabilities())) {
+            throw new FedSetupValidationException("Configuration request contains a capability not authorized by Direct Installation Trust");
         }
-        if (trust == null) {
-            throw new FedSetupValidationException("No Direct Installation Trust exists for this Application Tenant and installation runtime");
-        }
-        InstallationAuthorizationValidator.ValidatedAuthorization validated = InstallationAuthorizationValidator.validate(session, trust, authorization,
-                method, requestUri(), body, applicationTenantId, request.requestedCapabilities(), request.getExtensionProfiles());
-        return new RequestAuthorization(trust, validated);
+        return new RequestAuthorization(trust, InstallationAuthorizationValidator.sha256(body));
     }
 
-    /**
-     * Verifies the POST before using its tenant binding for idempotency, but
-     * deliberately delays replay consumption until no cached success exists.
-     */
-    private RequestAuthorization authorizeForIdempotency(String authorization, String method, String body, InstallationConfigurationRequest request,
-                                                         String applicationTenantId) {
-        if (applicationTenantId == null || applicationTenantId.isBlank()) {
-            throw new FedSetupValidationException("Installation Authorization is missing application_tenant_id");
+    private DirectInstallationTrust authorizeConnection(String authorization, FedSetupConnection connection) {
+        AuthenticationManager.AuthResult authenticated = oauthAccessToken(authorization);
+        DirectInstallationTrust trust = store.requireTrust(connection.getTrustId());
+        if (!FedSetupConfigurationClientService.isAuthorizedClient(authenticated.client(), trust)) {
+            throw new FedSetupValidationException("Connection is not bound to this authenticated Configuration API client");
         }
-        String issuer = unverifiedIssuer(authorization);
-        DirectInstallationTrust trust = store.findTrustByCimdUri(applicationTenantId, issuer);
-        if (trust == null) {
-            trust = store.findTrust(applicationTenantId, issuer);
+        return trust;
+    }
+
+    private AuthenticationManager.AuthResult oauthAccessToken(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new FedSetupValidationException("OAuth access token is required");
         }
-        if (trust == null) {
-            throw new FedSetupValidationException("No Direct Installation Trust exists for this Application Tenant and installation runtime");
+        try {
+            AuthenticationManager.AuthResult result = new AppAuthManager.BearerTokenAuthenticator(session)
+                    .setTokenString(authorization.substring("Bearer ".length()))
+                    .setAudience(FedSetupUrls.resourceBase(session.getContext().getUri(UrlType.FRONTEND), realm)).authenticate();
+            if (result == null || result.client() == null) throw new FedSetupValidationException("OAuth access token is invalid");
+            return result;
+        } catch (FedSetupValidationException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new FedSetupValidationException("OAuth access token is invalid", e);
         }
-        InstallationAuthorizationValidator.ValidatedAuthorization validated = InstallationAuthorizationValidator.validateForIdempotency(session, trust,
-                authorization, method, requestUri(), body, applicationTenantId, request.requestedCapabilities(), request.getExtensionProfiles());
-        return new RequestAuthorization(trust, validated);
     }
 
     private InstallationConfigurationRequest parseRequest(String body) {
@@ -770,34 +753,6 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         }
     }
 
-    private String unverifiedIssuer(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new FedSetupValidationException("A Bearer Installation Authorization is required");
-        }
-        try {
-            return new JWSInput(authorization.substring("Bearer ".length())).readJsonContent(org.keycloak.representations.JsonWebToken.class).getIssuer();
-        } catch (Exception e) {
-            throw new FedSetupValidationException("Invalid Installation Authorization", e);
-        }
-    }
-
-    private String unverifiedApplicationTenantId(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new FedSetupValidationException("A Bearer Installation Authorization is required");
-        }
-        try {
-            Object value = new JWSInput(authorization.substring("Bearer ".length())).readJsonContent(org.keycloak.representations.JsonWebToken.class)
-                    .getOtherClaims().get("application_tenant_id");
-            if (!(value instanceof String tenant) || tenant.isBlank()) {
-                throw new FedSetupValidationException("Installation Authorization is missing application_tenant_id");
-            }
-            return tenant;
-        } catch (FedSetupValidationException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new FedSetupValidationException("Invalid Installation Authorization", e);
-        }
-    }
 
     private FedSetupConnection toConnection(InstallationConfigurationRequest request, DirectInstallationTrust trust) {
         return toConnection(request, trust, true, request.getExtensionProfiles());
@@ -1276,15 +1231,22 @@ public class FedSetupRealmResource implements RealmResourceProvider {
     }
 
     private Response error(Response.Status status, String message) {
+        if (message != null && message.contains("OAuth access token")) {
+            return Response.status(Response.Status.UNAUTHORIZED).type(MediaType.APPLICATION_JSON)
+                    .header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
+                    .entity(Map.of("error", "invalid_credential", "error_description", message)).build();
+        }
         return protocolError(status, message);
     }
 
     private Response protocolError(Response.Status status, String message) {
         String code = protocolErrorCode(status, message);
         Response.Status responseStatus = "untrusted_issuer".equals(code) && status == Response.Status.BAD_REQUEST
-                ? Response.Status.FORBIDDEN : status;
-        return Response.status(responseStatus).type(MediaType.APPLICATION_JSON)
-                .entity(Map.of("error", code, "error_description", message)).build();
+                ? Response.Status.FORBIDDEN : "invalid_credential".equals(code) ? Response.Status.UNAUTHORIZED : status;
+        Response.ResponseBuilder response = Response.status(responseStatus).type(MediaType.APPLICATION_JSON)
+                .entity(Map.of("error", code, "error_description", message));
+        if ("invalid_credential".equals(code)) response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"");
+        return response.build();
     }
 
     /** Maps the draft's distinct protocol failures without exposing internal exception types. */
@@ -1301,7 +1263,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                 || value.contains("Direct Installation Trust is not active")
                 || value.contains("Connection is not bound to this Direct Installation Trust")
                 || value.contains("No Application integration profile")) return "untrusted_issuer";
-        if (value.contains("Installation Authorization") || value.contains("Trust Establishment Request")
+        if (value.contains("OAuth access token") || value.contains("Installation Authorization") || value.contains("Trust Establishment Request")
                 || value.contains("client_assertion") || value.contains("Authorization code")) return "invalid_credential";
         return "invalid_request";
     }
@@ -1327,6 +1289,6 @@ public class FedSetupRealmResource implements RealmResourceProvider {
     public void close() {
     }
 
-    private record RequestAuthorization(DirectInstallationTrust trust, InstallationAuthorizationValidator.ValidatedAuthorization authorization) {
+    private record RequestAuthorization(DirectInstallationTrust trust, String requestHash) {
     }
 }

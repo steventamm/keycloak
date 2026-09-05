@@ -15,6 +15,7 @@ import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupDiscoveryRepresentation;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
+import org.keycloak.services.Urls;
 import org.keycloak.urls.UrlType;
 import org.keycloak.wellknown.WellKnownProvider;
 
@@ -43,7 +44,9 @@ public class FedSetupWellKnownProvider implements WellKnownProvider {
         FedSetupDiscoveryRepresentation result = new FedSetupDiscoveryRepresentation();
         result.setFedsetupVersion("1.0");
         result.setApplicationBaseUri(profile.getCanonicalBaseUri());
+        result.setAuthorizationServer(Urls.realmIssuer(uriInfo.getBaseUri(), realm.getName()));
         result.setConfigurationEndpoint(endpoint + "/connections");
+        result.setConfigurationResource(endpoint);
         result.setConnectionEndpointTemplate(endpoint + "/connections/{connection_id}");
         java.util.List<String> protocols = new java.util.ArrayList<>();
         if (profile.getOidcClientId() != null) protocols.add("oidc");
@@ -66,8 +69,8 @@ public class FedSetupWellKnownProvider implements WellKnownProvider {
         result.setDirectInstallationTrustProfilesSupported(java.util.List.of(
                 FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI, FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI));
         result.setInstallationTrustEndpoint(FedSetupUrls.trust(uriInfo, realm));
-        result.setInstallationAuthorizationEndpoint(FedSetupUrls.frontAuthorize(uriInfo, realm));
-        result.setInstallationTokenEndpoint(FedSetupUrls.frontToken(uriInfo, realm));
+        result.setInstallationConsentEndpoint(FedSetupUrls.frontConsent(uriInfo, realm));
+        result.setInstallationConfirmationEndpoint(FedSetupUrls.frontConfirmation(uriInfo, realm));
         return result;
     }
 

@@ -23,3 +23,4 @@ org.keycloak.authentication.authenticators.client.FederatedJWTClientAuthenticato
 org.keycloak.authentication.authenticators.client.AttestationBasedClientAuthenticator
 org.keycloak.fedsetup.FedSetupScimCimdClientAuthenticator
 org.keycloak.fedsetup.FedSetupIdJagCimdClientAuthenticator
+org.keycloak.fedsetup.FedSetupConfigurationCimdClientAuthenticator

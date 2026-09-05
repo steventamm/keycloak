@@ -46,9 +46,6 @@ import org.keycloak.fedsetup.FedSetupConstants;
 import org.keycloak.fedsetup.FedSetupScimConnectionService;
 import org.keycloak.fedsetup.RealmFedSetupStore;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
-import org.keycloak.fedsetup.representation.DirectInstallationTrustApprovalRequest;
-import org.keycloak.fedsetup.representation.DirectInstallationTrustConsentResult;
-import org.keycloak.fedsetup.representation.DirectInstallationTrustInvitationRequest;
 import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.fedsetup.representation.FedSetupInstallation;
@@ -303,56 +300,6 @@ class FedSetupExpressConfigurationTest {
     }
 
     @Test
-    void administratorHandoffConsentCreatesOneTimePairedTrustsWithoutCrossRealmAuthentication() throws Exception {
-        String applicationTenant = APPLICATION_TENANT + "-handoff";
-        FedSetupConfigurationProfile profile = applicationProfile(applicationTenant);
-        AdminResponse putProfile = put(applicationRealm.getName(), "application-profile", Map.of(
-                "applicationTenantId", profile.getApplicationTenantId(),
-                "canonicalBaseUri", profile.getCanonicalBaseUri(),
-                "oidcClientId", profile.getOidcClientId(),
-                "capabilities", profile.getCapabilities()));
-        assertEquals(200, putProfile.status(), putProfile.body());
-
-        Map<?, ?> keySet = getPublic("/realms/" + idpRealm.getName() + "/protocol/openid-connect/certs", Map.class);
-        String signingJwk = activeRs256Jwk(keySet);
-
-        DirectInstallationTrustInvitationRequest invitationRequest = new DirectInstallationTrustInvitationRequest();
-        invitationRequest.setIdpIssuer(realmIssuer(idpRealm));
-        invitationRequest.setSigningKeyJwk(signingJwk);
-        invitationRequest.setRuntimeJwksUri(realmIssuer(idpRealm) + "/protocol/openid-connect/certs");
-        invitationRequest.setCapabilities(Set.of("oidc"));
-        invitationRequest.setExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
-        AdminResponse invitationResponse = post(applicationRealm.getName(), "trust-invitations", invitationRequest);
-        assertEquals(201, invitationResponse.status(), invitationResponse.body());
-        DirectInstallationTrustConsentResult invitation = read(invitationResponse.body(), DirectInstallationTrustConsentResult.class);
-        assertNotNull(invitation.getInvitation());
-        assertEquals(null, invitation.getApproval());
-
-        DirectInstallationTrustApprovalRequest approvalRequest = new DirectInstallationTrustApprovalRequest();
-        approvalRequest.setInvitation(invitation.getInvitation());
-        AdminResponse approvalResponse = post(idpRealm.getName(), "trust-invitations/approve", approvalRequest);
-        assertEquals(201, approvalResponse.status(), approvalResponse.body());
-        DirectInstallationTrustConsentResult approval = read(approvalResponse.body(), DirectInstallationTrustConsentResult.class);
-        assertNotNull(approval.getApproval());
-        assertNotNull(approval.getTrust());
-        assertEquals(applicationTenant, approval.getTrust().getApplicationTenantId());
-
-        approvalRequest.setApproval(approval.getApproval());
-        AdminResponse consumed = post(applicationRealm.getName(), "trust-invitations/consume", approvalRequest);
-        assertEquals(201, consumed.status(), consumed.body());
-        DirectInstallationTrust applicationTrust = read(consumed.body(), DirectInstallationTrust.class);
-        assertEquals(applicationTenant, applicationTrust.getApplicationTenantId());
-        assertEquals(realmIssuer(idpRealm), applicationTrust.getIdpIssuer());
-
-        // The artifacts move between two independent tenant administrators;
-        // neither is a reusable cross-realm login or consent session.
-        AdminResponse replay = post(applicationRealm.getName(), "trust-invitations/consume", approvalRequest);
-        assertEquals(400, replay.status(), replay.body());
-        assertNotNull(trustForTenant(getList(applicationRealm.getName(), "trusts", DirectInstallationTrust.class), applicationTenant));
-        assertNotNull(trustForTenant(getList(idpRealm.getName(), "trusts", DirectInstallationTrust.class), applicationTenant));
-    }
-
-    @Test
     void nativeScimUsesTheConnectionScopedCredentialAndNegotiatedFeatureSubset() throws Exception {
         String applicationTenant = APPLICATION_TENANT + "-scim";
         FedSetupConfigurationProfile profile = applicationProfile(applicationTenant);
@@ -599,8 +546,8 @@ class FedSetupExpressConfigurationTest {
         DirectInstallationTrust trust = outboundBackChannelTrust(applicationTenant);
         trust.setTrustProfileUri(FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI);
         trust.setInstallationTrustEndpoint(null);
-        trust.setInstallationAuthorizationEndpoint(resourceBase(applicationRealm) + "/front/authorize");
-        trust.setInstallationTokenEndpoint(resourceBase(applicationRealm) + "/front/token");
+        trust.setInstallationConsentEndpoint(resourceBase(applicationRealm) + "/front/authorize");
+        trust.setInstallationConfirmationEndpoint(resourceBase(applicationRealm) + "/front/token");
         return trust;
     }
 
@@ -741,18 +688,6 @@ class FedSetupExpressConfigurationTest {
             if (name.equals(matcher.group(1))) return matcher.group(2);
         }
         throw new AssertionError("Missing hidden input " + name + " in " + html);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static String activeRs256Jwk(Map<?, ?> keySet) throws IOException {
-        Object keys = keySet.get("keys");
-        assertTrue(keys instanceof List<?>, "JWKS response has no keys array");
-        for (Object key : (List<?>) keys) {
-            if (key instanceof Map<?, ?> jwk && "RS256".equals(jwk.get("alg"))) {
-                return JsonSerialization.writeValueAsString((Map<String, Object>) jwk);
-            }
-        }
-        throw new AssertionError("JWKS response has no RS256 signing key: " + keySet);
     }
 
     private static void assertRedirect(BrowserResponse response, String step) {
