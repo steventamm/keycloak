@@ -37,10 +37,16 @@ public class FedSetupSubmissionProfile {
     private List<Map<String, Object>> contacts = new ArrayList<>();
     private Set<String> categories = new LinkedHashSet<>();
     private Set<String> deploymentRegions = new LinkedHashSet<>();
-    private Map<String, Object> testEvidence = new LinkedHashMap<>();
-    private Map<String, Object> catalogConfiguration = new LinkedHashMap<>();
+    private List<Map<String, Object>> testAccounts = new ArrayList<>();
+    private Map<String, Object> listing = new LinkedHashMap<>();
+    private List<Map<String, Object>> installationParameters = new ArrayList<>();
+    private Map<String, Object> publisher = new LinkedHashMap<>();
+    private Map<String, Object> extensions = new LinkedHashMap<>();
     private Set<String> capabilities = new LinkedHashSet<>();
-    private Set<String> extensionProfiles = new LinkedHashSet<>();
+    private String configurationDiscoveryUri;
+    private Map<String, Object> expressConfigurationCapabilities = new LinkedHashMap<>();
+    private Set<String> providerDelegationProfiles = new LinkedHashSet<>();
+    private Set<String> federationExtensionProfiles = new LinkedHashSet<>();
     private List<FedSetupSubmissionIdJagResourceBinding> idJagResourceBindings = new ArrayList<>();
     private boolean samlSpInitiatedSloSupported;
 
@@ -80,14 +86,26 @@ public class FedSetupSubmissionProfile {
     public void setCategories(Set<String> categories) { this.categories = categories == null ? new LinkedHashSet<>() : new LinkedHashSet<>(categories); }
     public Set<String> getDeploymentRegions() { return deploymentRegions; }
     public void setDeploymentRegions(Set<String> deploymentRegions) { this.deploymentRegions = deploymentRegions == null ? new LinkedHashSet<>() : new LinkedHashSet<>(deploymentRegions); }
-    public Map<String, Object> getTestEvidence() { return testEvidence; }
-    public void setTestEvidence(Map<String, Object> testEvidence) { this.testEvidence = testEvidence == null ? new LinkedHashMap<>() : new LinkedHashMap<>(testEvidence); }
-    public Map<String, Object> getCatalogConfiguration() { return catalogConfiguration; }
-    public void setCatalogConfiguration(Map<String, Object> catalogConfiguration) { this.catalogConfiguration = catalogConfiguration == null ? new LinkedHashMap<>() : new LinkedHashMap<>(catalogConfiguration); }
+    public List<Map<String, Object>> getTestAccounts() { return testAccounts; }
+    public void setTestAccounts(List<Map<String, Object>> value) { testAccounts = value == null ? new ArrayList<>() : new ArrayList<>(value); }
+    public Map<String, Object> getListing() { return listing; }
+    public void setListing(Map<String, Object> value) { listing = value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value); }
+    public List<Map<String, Object>> getInstallationParameters() { return installationParameters; }
+    public void setInstallationParameters(List<Map<String, Object>> value) { installationParameters = value == null ? new ArrayList<>() : new ArrayList<>(value); }
+    public Map<String, Object> getPublisher() { return publisher; }
+    public void setPublisher(Map<String, Object> value) { publisher = value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value); }
+    public Map<String, Object> getExtensions() { return extensions; }
+    public void setExtensions(Map<String, Object> value) { extensions = value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value); }
     public Set<String> getCapabilities() { return capabilities; }
     public void setCapabilities(Set<String> capabilities) { this.capabilities = capabilities == null ? new LinkedHashSet<>() : new LinkedHashSet<>(capabilities); }
-    public Set<String> getExtensionProfiles() { return extensionProfiles; }
-    public void setExtensionProfiles(Set<String> extensionProfiles) { this.extensionProfiles = extensionProfiles == null ? new LinkedHashSet<>() : new LinkedHashSet<>(extensionProfiles); }
+    public String getConfigurationDiscoveryUri() { return configurationDiscoveryUri; }
+    public void setConfigurationDiscoveryUri(String value) { configurationDiscoveryUri = value; }
+    public Map<String, Object> getExpressConfigurationCapabilities() { return expressConfigurationCapabilities; }
+    public void setExpressConfigurationCapabilities(Map<String, Object> value) { expressConfigurationCapabilities = value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value); }
+    public Set<String> getProviderDelegationProfiles() { return providerDelegationProfiles; }
+    public void setProviderDelegationProfiles(Set<String> value) { providerDelegationProfiles = value == null ? new LinkedHashSet<>() : new LinkedHashSet<>(value); }
+    public Set<String> getFederationExtensionProfiles() { return federationExtensionProfiles; }
+    public void setFederationExtensionProfiles(Set<String> value) { federationExtensionProfiles = value == null ? new LinkedHashSet<>() : new LinkedHashSet<>(value); }
     public List<FedSetupSubmissionIdJagResourceBinding> getIdJagResourceBindings() { return idJagResourceBindings; }
     public void setIdJagResourceBindings(List<FedSetupSubmissionIdJagResourceBinding> value) { idJagResourceBindings = value == null ? new ArrayList<>() : new ArrayList<>(value); }
     public boolean isSamlSpInitiatedSloSupported() { return samlSpInitiatedSloSupported; }

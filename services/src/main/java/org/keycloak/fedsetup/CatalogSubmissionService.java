@@ -9,6 +9,8 @@ package org.keycloak.fedsetup;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -25,6 +27,7 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.vault.VaultStringSecret;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.http.client.config.RequestConfig;
 
@@ -32,9 +35,6 @@ import org.apache.http.client.config.RequestConfig;
 public final class CatalogSubmissionService {
 
     private static final Pattern VAULT_REFERENCE = Pattern.compile("\\$\\{vault\\.[A-Za-z0-9_.-]+}");
-    // Section 4.1 supported_capabilities / approved_capabilities enumeration. Distinct from
-    // express_configuration.capabilities (Section 6.4), which uses "scim"/"provider_delegation"/"id_jag".
-    private static final Set<String> STANDARD_CAPABILITIES = Set.of("provisioning", "express_configuration", "id_jag", "marketplace", "identity_platform");
     private static final RequestConfig NO_REDIRECTS = RequestConfig.copy(RequestConfig.DEFAULT).setRedirectsEnabled(false).build();
 
     private final KeycloakSession session;
@@ -148,7 +148,7 @@ public final class CatalogSubmissionService {
         CatalogDiscovery discovery = target.getDiscovery();
         if (discovery == null) throw new FedSetupSubmissionValidationException("Discover the Catalog before submitting");
         validateDiscovery(target, discovery);
-        if (!discovery.getSupportedAuthMethods().contains(target.getAuthenticationMethod())) {
+        if (!discovery.getAuthMethodsSupported().contains(target.getAuthenticationMethod())) {
             throw new FedSetupSubmissionValidationException("Catalog does not support the configured authentication method");
         }
         return discovery;
@@ -165,36 +165,27 @@ public final class CatalogSubmissionService {
 
     private void validateDiscovery(CatalogTarget target, CatalogDiscovery discovery) {
         if (discovery == null || !"1.0".equals(discovery.getSubmissionVersion()) || blank(discovery.getSubmissionEndpoint())
-                || blank(discovery.getStatusEndpointTemplate()) || discovery.getSupportedProtocols().isEmpty()) {
+                || blank(discovery.getStatusEndpointTemplate()) || discovery.getCapabilities().isEmpty()) {
             throw new FedSetupSubmissionValidationException("Catalog discovery does not support the standard FedSetup Submission API");
         }
         discovery.setSubmissionEndpoint(catalogUri(target, discovery.getSubmissionEndpoint()));
-        if (!discovery.getStatusEndpointTemplate().contains("{submission_id}")) {
-            throw new FedSetupSubmissionValidationException("Catalog status_endpoint_template must contain {submission_id}");
+        if (occurrences(discovery.getStatusEndpointTemplate(), "{submission_id}") != 1
+                || statusProbeHasUnexpectedVariable(discovery.getStatusEndpointTemplate())) {
+            throw new FedSetupSubmissionValidationException("Catalog status_endpoint_template must contain exactly one {submission_id}");
         }
         String statusProbe = discovery.getStatusEndpointTemplate().replace("{submission_id}", "submission-id");
         catalogUri(target, statusProbe);
-        if (!Set.of("oidc", "saml").containsAll(discovery.getSupportedProtocols())
-                || !STANDARD_CAPABILITIES.containsAll(discovery.getSupportedCapabilities())
-                || !Set.of("oauth2_bearer", "mtls").containsAll(discovery.getSupportedAuthMethods())) {
-            throw new FedSetupSubmissionValidationException("Catalog discovery contains an unsupported protocol, capability, or authentication method");
+        if (!Set.of("provisioning", "listing").containsAll(discovery.getSectionsSupported())
+                || !Set.of("oauth2_bearer", "oauth2_delegated", "mtls").containsAll(discovery.getAuthMethodsSupported())) {
+            throw new FedSetupSubmissionValidationException("Catalog discovery contains an unsupported section or authentication method");
         }
-        if (discovery.getSupportedAuthMethods().isEmpty()) discovery.getSupportedAuthMethods().add("oauth2_bearer");
+        if (discovery.getAuthMethodsSupported().isEmpty()) discovery.getAuthMethodsSupported().add("oauth2_bearer");
     }
 
-    @SuppressWarnings("unchecked")
     static void validateCapabilities(CatalogDiscovery discovery, Map<String, Object> manifest) {
-        Map<String, Object> identity = (Map<String, Object>) manifest.get("identity");
-        if (identity.containsKey("oidc") && !discovery.getSupportedProtocols().contains("oidc")
-                || identity.containsKey("saml") && !discovery.getSupportedProtocols().contains("saml")) {
-            throw new FedSetupSubmissionValidationException("Catalog does not support every SSO protocol in the generated manifest");
-        }
-        // A catalog cannot silently publish an optional Manifest section it
-        // does not advertise. Preserve the administrator's profile and fail
-        // locally instead of changing the Manifest on its way to the Catalog.
-        for (String capability : STANDARD_CAPABILITIES) {
-            if (manifest.containsKey(capability) && !discovery.getSupportedCapabilities().contains(capability)) {
-                throw new FedSetupSubmissionValidationException("Catalog does not support the " + capability + " Manifest section");
+        for (String section : Set.of("provisioning", "listing")) {
+            if (manifest.containsKey(section) && !discovery.getSectionsSupported().contains(section)) {
+                throw new FedSetupSubmissionValidationException("Catalog does not support the " + section + " Manifest section");
             }
         }
     }
@@ -225,8 +216,17 @@ public final class CatalogSubmissionService {
         if (statusUri != null) submission.setStatusUri(catalogUri(target, statusUri));
         String completion = text(body, "review_estimated_completion", false);
         if (completion != null) submission.setReviewEstimatedCompletion(completion);
-        String comments = text(body, "reviewer_comments", false);
+        List<String> comments = strings(body, "reviewer_comments");
         if (comments != null) submission.setReviewerComments(comments);
+        Set<String> approvedSections = stringsAsSet(body, "approved_sections");
+        if (approvedSections != null) submission.setApprovedSections(approvedSections);
+        Set<String> approvedCapabilities = stringsAsSet(body, "approved_capabilities");
+        if (approvedCapabilities != null) submission.setApprovedCapabilities(approvedCapabilities);
+        JsonNode extensionStatus = body.get("extension_status");
+        if (extensionStatus != null) {
+            if (!extensionStatus.isObject()) throw new FedSetupSubmissionValidationException("Catalog response has invalid extension_status");
+            submission.setExtensionStatus(JsonSerialization.mapper.convertValue(extensionStatus, new TypeReference<>() { }));
+        }
         if (etag != null && !etag.isBlank()) submission.setRemoteEtag(etag);
     }
 
@@ -278,6 +278,25 @@ public final class CatalogSubmissionService {
         return null;
     }
 
+    private static List<String> strings(JsonNode body, String name) {
+        JsonNode node = body.get(name);
+        if (node == null) return null;
+        if (!node.isArray()) throw new FedSetupSubmissionValidationException("Catalog response has invalid " + name);
+        java.util.ArrayList<String> values = new java.util.ArrayList<>();
+        for (JsonNode value : node) {
+            if (!value.isTextual() || value.asText().isBlank()) {
+                throw new FedSetupSubmissionValidationException("Catalog response has invalid " + name);
+            }
+            values.add(value.asText());
+        }
+        return values;
+    }
+
+    private static Set<String> stringsAsSet(JsonNode body, String name) {
+        List<String> values = strings(body, name);
+        return values == null ? null : new LinkedHashSet<>(values);
+    }
+
     private static void requireStatus(SimpleHttpResponse response, int expected) throws IOException {
         if (response.getStatus() != expected) {
             throw new FedSetupSubmissionValidationException("Catalog returned HTTP " + response.getStatus());
@@ -310,6 +329,14 @@ public final class CatalogSubmissionService {
 
     private static int effectivePort(URI uri) {
         return uri.getPort() == -1 ? 443 : uri.getPort();
+    }
+
+    private static int occurrences(String value, String needle) {
+        return (value.length() - value.replace(needle, "").length()) / needle.length();
+    }
+
+    private static boolean statusProbeHasUnexpectedVariable(String template) {
+        return template.replace("{submission_id}", "").contains("{");
     }
 
     @FunctionalInterface

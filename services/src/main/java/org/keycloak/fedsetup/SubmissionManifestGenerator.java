@@ -37,6 +37,9 @@ import org.keycloak.urls.UrlType;
  */
 public final class SubmissionManifestGenerator {
 
+    static final String EXPRESS_CONFIGURATION_EXTENSION = "urn:ietf:params:fedsetup:catalog-ext:express-configuration";
+    static final String ID_JAG_EXTENSION = "urn:ietf:params:fedsetup:catalog-ext:id-jag";
+
     private SubmissionManifestGenerator() {
     }
 
@@ -57,11 +60,16 @@ public final class SubmissionManifestGenerator {
         putIfNotBlank(result, "changelog", profile.getChangelog());
 
         Map<String, Object> identity = new LinkedHashMap<>();
+        Map<String, Object> capabilities = new LinkedHashMap<>();
         if (notBlank(profile.getOidcClientId())) {
-            identity.put("oidc", oidc(session, realm, profile, frontendUri));
+            identity.put("oidc", oidc(realm, profile));
+            capabilities.put("oidc", Map.of());
         }
         if (notBlank(profile.getSamlClientId())) {
             identity.put("saml", saml(realm, profile));
+            Map<String, Object> samlCapability = new LinkedHashMap<>();
+            if (profile.isSamlSpInitiatedSloSupported()) samlCapability.put("sp_initiated_slo_supported", true);
+            capabilities.put("saml", samlCapability);
         }
         if (identity.isEmpty()) {
             throw new FedSetupSubmissionValidationException("An OIDC or SAML client is required to generate a manifest");
@@ -70,28 +78,31 @@ public final class SubmissionManifestGenerator {
 
         if (profile.getCapabilities().contains("scim")) {
             result.put("provisioning", provisioning(session, realm, frontendUri));
+            capabilities.put("scim", scimCapability());
         }
         if (profile.getCapabilities().contains("id_jag")) {
-            result.put("id_jag", idJag(realm, profile, frontendUri));
+            capabilities.put("id_jag", Map.of());
         }
-        // TODO: Add an administrator-configured express_configuration object without
-        // depending on the Express Configuration implementation.
-        // result.put("express_configuration", expressConfiguration(realm, profile, frontendUri));
-        if (!profile.getTestEvidence().isEmpty()) {
-            result.put("test_account", new LinkedHashMap<>(profile.getTestEvidence()));
-        }
-        if (!profile.getCatalogConfiguration().isEmpty()) {
-            result.put("catalog", new LinkedHashMap<>(profile.getCatalogConfiguration()));
-        }
+        result.put("capabilities", capabilities);
+        putIfNotEmpty(result, "config", profile.getInstallationParameters());
+        putIfNotEmpty(result, "listing", profile.getListing());
+        putIfNotEmpty(result, "test_accounts", profile.getTestAccounts());
+        putIfNotEmpty(result, "publisher", profile.getPublisher());
+
+        Map<String, Object> extensions = new LinkedHashMap<>(profile.getExtensions());
+        if (profile.getCapabilities().contains("id_jag")) extensions.put(ID_JAG_EXTENSION, idJag(realm, profile, frontendUri));
+        if (notBlank(profile.getConfigurationDiscoveryUri())) extensions.put(EXPRESS_CONFIGURATION_EXTENSION,
+                expressConfiguration(profile));
+        putIfNotEmpty(result, "extensions", extensions);
         return result;
     }
 
-    private static Map<String, Object> oidc(KeycloakSession session, RealmModel realm, FedSetupSubmissionProfile profile, UriInfo frontendUri) {
+    private static Map<String, Object> oidc(RealmModel realm, FedSetupSubmissionProfile profile) {
         ClientModel client = requireClient(realm, profile.getOidcClientId(), "openid-connect");
         OIDCAdvancedConfigWrapper config = OIDCAdvancedConfigWrapper.fromClientModel(client);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("redirect_uris", canonicalUris(client.getRedirectUris(), "OIDC redirect URI"));
-        result.put("client_type", client.isPublicClient() ? "spa" : "web");
+        result.put("application_type", "web");
         putIfNotBlank(result, "initiate_login_uri", profile.getInitiateLoginUri());
         putIfNotEmpty(result, "post_logout_uris", canonicalUris(config.getPostLogoutRedirectUris(), "OIDC post-logout URI"));
         result.put("grant_types", enabledGrantTypes(client));
@@ -105,13 +116,11 @@ public final class SubmissionManifestGenerator {
         scopes.removeAll(Set.of("openid", "profile", "email"));
         putIfNotEmpty(result, "scopes", scopes);
         putIfNotEmpty(result, "scope_justifications", profile.getScopeJustifications());
-        putIfNotBlank(result, "documentation_uri", profile.getOidcDocumentationUri());
+        documentation(result, profile.getOidcDocumentationUri());
         String backchannelLogout = config.getBackchannelLogoutUrl();
         if (notBlank(backchannelLogout)) {
             result.put("backchannel_logout_uri", FedSetupSubmissionUri.canonicalize(backchannelLogout));
         }
-        // This is emitted for Catalog review and is intentionally not a trust input.
-        result.put("keycloak_issuer", Urls.realmIssuer(frontendUri.getBaseUri(), realm.getName()));
         return result;
     }
 
@@ -146,9 +155,8 @@ public final class SubmissionManifestGenerator {
             if (slo == null) {
                 throw new FedSetupSubmissionValidationException("The selected SAML client needs a Single Logout URL when SP-initiated SLO is enabled");
             }
-            result.put("sp_initiated_slo_supported", true);
         }
-        putIfNotBlank(result, "documentation_uri", profile.getSamlDocumentationUri());
+        documentation(result, profile.getSamlDocumentationUri());
         return result;
     }
 
@@ -160,12 +168,16 @@ public final class SubmissionManifestGenerator {
         scim.put("base_uri", RealmsResource.realmBaseUrl(frontendUri).build(realm.getName()).toString() + "/scim/v2");
         // Core mode; Section 6.3.1 forbids token_endpoint for SAAS_ISSUED_BEARER.
         scim.put("auth_mode", "SAAS_ISSUED_BEARER");
-        scim.put("supported_schemas", List.of("urn:ietf:params:scim:schemas:core:2.0:User",
+        scim.put("schemas_supported", List.of("urn:ietf:params:scim:schemas:core:2.0:User",
                 "urn:ietf:params:scim:schemas:core:2.0:Group"));
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("features", List.of("PUSH_NEW_USERS", "PUSH_USER_DEACTIVATION", "REACTIVATE_USERS", "PUSH_PROFILE_UPDATES", "PUSH_GROUPS"));
         result.put("scim", scim);
         return result;
+    }
+
+    private static Map<String, Object> scimCapability() {
+        return Map.of("features_supported", List.of("PUSH_NEW_USERS", "PUSH_USER_DEACTIVATION", "REACTIVATE_USERS",
+                "PUSH_PROFILE_UPDATES", "PUSH_GROUPS"));
     }
 
     /** Emits only Keycloak's resource-app role; Keycloak does not issue ID-JAG assertions in this preview. */
@@ -177,6 +189,20 @@ public final class SubmissionManifestGenerator {
         result.put("role", "resource_app");
         result.put("resource_app", idJagResourceApp(Urls.realmIssuer(frontendUri.getBaseUri(), realm.getName()), profile.getIdJagResourceBindings()));
         return result;
+    }
+
+    private static Map<String, Object> expressConfiguration(FedSetupSubmissionProfile profile) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("configuration_discovery_uri", FedSetupSubmissionUri.canonicalize(profile.getConfigurationDiscoveryUri()));
+        putIfNotEmpty(result, "capabilities", profile.getExpressConfigurationCapabilities());
+        putIfNotEmpty(result, "provider_delegation_profiles", profile.getProviderDelegationProfiles());
+        putIfNotEmpty(result, "federation_extension_profiles", profile.getFederationExtensionProfiles());
+        return result;
+    }
+
+    private static void documentation(Map<String, Object> result, String uri) {
+        if (notBlank(uri)) result.put("documentation_uris", List.of(Map.of("name", "integration",
+                "uri", FedSetupSubmissionUri.canonicalize(uri))));
     }
 
     static Map<String, Object> idJagResourceApp(String issuer, List<FedSetupSubmissionIdJagResourceBinding> bindings) {

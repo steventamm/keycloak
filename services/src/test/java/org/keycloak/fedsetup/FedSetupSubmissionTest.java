@@ -50,12 +50,11 @@ class FedSetupSubmissionTest {
     }
 
     @Test
-    void rejectsUnsupportedCatalogSectionsWithoutMutatingTheManifest() {
+    void rejectsUnsupportedManifestSectionsWithoutMutatingTheManifest() {
         CatalogDiscovery discovery = new CatalogDiscovery();
-        discovery.setSupportedProtocols(Set.of("oidc"));
-        discovery.setSupportedCapabilities(Set.of("express_configuration"));
+        discovery.setCapabilities(Map.of("oidc", Map.of()));
+        discovery.setSectionsSupported(Set.of("listing"));
         Map<String, Object> manifest = new LinkedHashMap<>();
-        manifest.put("identity", Map.of("oidc", Map.of()));
         manifest.put("provisioning", Map.of());
 
         assertThrows(FedSetupSubmissionValidationException.class,
@@ -75,7 +74,8 @@ class FedSetupSubmissionTest {
     void manifestDoesNotAdvertiseExpressConfigurationWithoutEndpointMetadata() {
         Map<String, Object> manifest = SubmissionManifestGenerator.generate(session(), realmWithSamlClient(), listingProfile());
 
-        assertFalse(manifest.containsKey("express_configuration"));
+        assertFalse(manifest.containsKey("extensions"));
+        assertEquals(Map.of("saml", Map.of()), manifest.get("capabilities"));
     }
 
     @Test

@@ -7,6 +7,12 @@
  */
 package org.keycloak.fedsetup.representation;
 
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 /** Realm-local Listing metadata returned by a Catalog. It is never runtime trust. */
@@ -22,7 +28,10 @@ public class CatalogSubmission {
     private String linkStatus;
     private String remoteEtag;
     private String reviewEstimatedCompletion;
-    private String reviewerComments;
+    private List<String> reviewerComments;
+    private Set<String> approvedSections = new LinkedHashSet<>();
+    private Set<String> approvedCapabilities = new LinkedHashSet<>();
+    private Map<String, Object> extensionStatus = new LinkedHashMap<>();
     private long createdAt;
     private long updatedAt;
     private long version;
@@ -47,8 +56,14 @@ public class CatalogSubmission {
     public void setRemoteEtag(String remoteEtag) { this.remoteEtag = remoteEtag; }
     public String getReviewEstimatedCompletion() { return reviewEstimatedCompletion; }
     public void setReviewEstimatedCompletion(String reviewEstimatedCompletion) { this.reviewEstimatedCompletion = reviewEstimatedCompletion; }
-    public String getReviewerComments() { return reviewerComments; }
-    public void setReviewerComments(String reviewerComments) { this.reviewerComments = reviewerComments; }
+    public List<String> getReviewerComments() { return reviewerComments; }
+    public void setReviewerComments(List<String> value) { reviewerComments = value; }
+    public Set<String> getApprovedSections() { return approvedSections; }
+    public void setApprovedSections(Set<String> value) { approvedSections = value == null ? new LinkedHashSet<>() : new LinkedHashSet<>(value); }
+    public Set<String> getApprovedCapabilities() { return approvedCapabilities; }
+    public void setApprovedCapabilities(Set<String> value) { approvedCapabilities = value == null ? new LinkedHashSet<>() : new LinkedHashSet<>(value); }
+    public Map<String, Object> getExtensionStatus() { return extensionStatus; }
+    public void setExtensionStatus(Map<String, Object> value) { extensionStatus = value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value); }
     public long getCreatedAt() { return createdAt; }
     public void setCreatedAt(long createdAt) { this.createdAt = createdAt; }
     public long getUpdatedAt() { return updatedAt; }

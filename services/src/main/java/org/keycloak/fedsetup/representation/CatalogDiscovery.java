@@ -7,7 +7,9 @@
  */
 package org.keycloak.fedsetup.representation;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -22,14 +24,14 @@ public class CatalogDiscovery {
     private String submissionEndpoint;
     @JsonProperty("status_endpoint_template")
     private String statusEndpointTemplate;
-    @JsonProperty("supported_protocols")
-    private Set<String> supportedProtocols = new LinkedHashSet<>();
-    @JsonProperty("supported_capabilities")
-    private Set<String> supportedCapabilities = new LinkedHashSet<>();
-    @JsonProperty("supported_auth_methods")
-    private Set<String> supportedAuthMethods = new LinkedHashSet<>();
-    @JsonProperty("webhooks_supported")
-    private boolean webhooksSupported;
+    @JsonProperty("capabilities")
+    private Map<String, Map<String, Object>> capabilities = new LinkedHashMap<>();
+    @JsonProperty("sections_supported")
+    private Set<String> sectionsSupported = new LinkedHashSet<>();
+    @JsonProperty("extensions_supported")
+    private Set<String> extensionsSupported = new LinkedHashSet<>();
+    @JsonProperty("auth_methods_supported")
+    private Set<String> authMethodsSupported = new LinkedHashSet<>();
 
     public String getSubmissionVersion() { return submissionVersion; }
     public void setSubmissionVersion(String submissionVersion) { this.submissionVersion = submissionVersion; }
@@ -37,12 +39,12 @@ public class CatalogDiscovery {
     public void setSubmissionEndpoint(String submissionEndpoint) { this.submissionEndpoint = submissionEndpoint; }
     public String getStatusEndpointTemplate() { return statusEndpointTemplate; }
     public void setStatusEndpointTemplate(String statusEndpointTemplate) { this.statusEndpointTemplate = statusEndpointTemplate; }
-    public Set<String> getSupportedProtocols() { return supportedProtocols; }
-    public void setSupportedProtocols(Set<String> supportedProtocols) { this.supportedProtocols = supportedProtocols == null ? new LinkedHashSet<>() : new LinkedHashSet<>(supportedProtocols); }
-    public Set<String> getSupportedCapabilities() { return supportedCapabilities; }
-    public void setSupportedCapabilities(Set<String> supportedCapabilities) { this.supportedCapabilities = supportedCapabilities == null ? new LinkedHashSet<>() : new LinkedHashSet<>(supportedCapabilities); }
-    public Set<String> getSupportedAuthMethods() { return supportedAuthMethods; }
-    public void setSupportedAuthMethods(Set<String> supportedAuthMethods) { this.supportedAuthMethods = supportedAuthMethods == null ? new LinkedHashSet<>() : new LinkedHashSet<>(supportedAuthMethods); }
-    public boolean isWebhooksSupported() { return webhooksSupported; }
-    public void setWebhooksSupported(boolean webhooksSupported) { this.webhooksSupported = webhooksSupported; }
+    public Map<String, Map<String, Object>> getCapabilities() { return capabilities; }
+    public void setCapabilities(Map<String, Map<String, Object>> value) { capabilities = value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value); }
+    public Set<String> getSectionsSupported() { return sectionsSupported; }
+    public void setSectionsSupported(Set<String> value) { sectionsSupported = value == null ? new LinkedHashSet<>() : new LinkedHashSet<>(value); }
+    public Set<String> getExtensionsSupported() { return extensionsSupported; }
+    public void setExtensionsSupported(Set<String> value) { extensionsSupported = value == null ? new LinkedHashSet<>() : new LinkedHashSet<>(value); }
+    public Set<String> getAuthMethodsSupported() { return authMethodsSupported; }
+    public void setAuthMethodsSupported(Set<String> value) { authMethodsSupported = value == null ? new LinkedHashSet<>() : new LinkedHashSet<>(value); }
 }
