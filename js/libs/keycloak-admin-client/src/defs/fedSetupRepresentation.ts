@@ -14,7 +14,6 @@ export interface DirectInstallationTrustRepresentation {
   authorizationServer?: string;
   configurationEndpoint?: string;
   configurationResource?: string;
-  configurationResource?: string;
   connectionEndpointTemplate?: string;
   idpIssuer?: string;
   trustProfileUri?: string;
