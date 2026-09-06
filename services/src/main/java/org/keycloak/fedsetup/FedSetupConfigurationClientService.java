@@ -14,11 +14,15 @@ import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.ProtocolMapperModel;
 import org.keycloak.models.RealmModel;
+import org.keycloak.authentication.authenticators.client.JWTClientAuthenticator;
+import org.keycloak.protocol.oidc.OIDCAdvancedConfigWrapper;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.mappers.AudienceProtocolMapper;
+import org.keycloak.representations.oidc.OIDCClientRepresentation;
 import org.keycloak.services.managers.ClientManager;
 import org.keycloak.services.managers.RealmManager;
 import org.keycloak.urls.UrlType;
+import org.keycloak.util.JsonSerialization;
 
 /**
  * Creates the Application-AS client authorization that a successful Direct
@@ -41,7 +45,7 @@ public final class FedSetupConfigurationClientService {
         } else if (!Boolean.parseBoolean(client.getAttribute(FedSetupConstants.CONFIGURATION_CLIENT_ATTRIBUTE))) {
             throw new FedSetupValidationException("The CIMD URI is already assigned to a non-FedSetup client");
         }
-        configure(session, realm, client);
+        configure(session, realm, client, trust);
     }
 
     static boolean isAuthorizedClient(ClientModel client, DirectInstallationTrust trust) {
@@ -63,7 +67,7 @@ public final class FedSetupConfigurationClientService {
         }
     }
 
-    private static void configure(KeycloakSession session, RealmModel realm, ClientModel client) {
+    private static void configure(KeycloakSession session, RealmModel realm, ClientModel client, DirectInstallationTrust trust) {
         client.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
         client.setEnabled(true);
         client.setPublicClient(false);
@@ -72,7 +76,12 @@ public final class FedSetupConfigurationClientService {
         client.setImplicitFlowEnabled(false);
         client.setDirectAccessGrantsEnabled(false);
         client.setServiceAccountsEnabled(true);
-        client.setClientAuthenticatorType(FedSetupConfigurationCimdClientAuthenticator.PROVIDER_ID);
+        // Reuse Keycloak's built-in signed-JWT authenticator. Unlike a custom
+        // authenticator it is already available in every realm's standard
+        // client-authentication flow, so creating a Trust never needs to
+        // mutate that shared flow.
+        client.setClientAuthenticatorType(JWTClientAuthenticator.PROVIDER_ID);
+        configureCimdSigningKeys(session, client, trust.getInstallationRuntimeCimdUri());
         client.setAttribute(FedSetupConstants.CONFIGURATION_CLIENT_ATTRIBUTE, Boolean.TRUE.toString());
         client.getProtocolMappersStream().filter(mapper -> FedSetupConstants.CONFIGURATION_RESOURCE_AUDIENCE_MAPPER.equals(mapper.getName()))
                 .toList().forEach(client::removeProtocolMapper);
@@ -81,5 +90,23 @@ public final class FedSetupConfigurationClientService {
                 null, resource, true, false, true);
         client.addProtocolMapper(mapper);
         new ClientManager(new RealmManager(session)).enableServiceAccount(client);
+    }
+
+    private static void configureCimdSigningKeys(KeycloakSession session, ClientModel client, String cimdUri) {
+        OIDCClientRepresentation metadata = FedSetupCimdResolver.metadata(session, cimdUri);
+        OIDCAdvancedConfigWrapper configuration = OIDCAdvancedConfigWrapper.fromClientModel(client);
+        if (metadata.getJwksUri() != null && !metadata.getJwksUri().isBlank()) {
+            configuration.setUseJwksUrl(true);
+            configuration.setJwksUrl(metadata.getJwksUri());
+            configuration.setUseJwksString(false);
+            configuration.setJwksString(null);
+        } else if (metadata.getJwks() != null) {
+            configuration.setUseJwksUrl(false);
+            configuration.setJwksUrl(null);
+            configuration.setUseJwksString(true);
+            configuration.setJwksString(JsonSerialization.valueAsString(metadata.getJwks()));
+        } else {
+            throw new FedSetupValidationException("CIMD has no signing key set");
+        }
     }
 }

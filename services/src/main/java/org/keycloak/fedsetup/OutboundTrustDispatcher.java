@@ -105,7 +105,10 @@ public final class OutboundTrustDispatcher {
         validateLocalTrust(session, realm, trust, FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI);
         String proof = confirmationProof(session, realm, trust, code, transaction.getTokenEndpoint());
         SimpleHttpRequest request = SimpleHttp.create(session).doPost(transaction.getTokenEndpoint())
-                .header("Authorization", "Bearer " + proof).acceptJson();
+                .header("Authorization", "Bearer " + proof).acceptJson()
+                // SimpleHttp requires an entity for POST. A zero-length entity
+                // preserves the confirmation endpoint's no-body contract.
+                .entity(new StringEntity("", ContentType.DEFAULT_TEXT));
         try (SimpleHttpResponse response = request.asResponse()) {
             if (response.getStatus() != 200) throw new FedSetupValidationException("Application token endpoint returned HTTP " + response.getStatus());
             applyConfirmation(trust, confirmation(response.asString(), trust));
