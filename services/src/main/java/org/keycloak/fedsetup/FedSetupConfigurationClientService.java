@@ -9,12 +9,12 @@ package org.keycloak.fedsetup;
 
 import java.util.UUID;
 
+import org.keycloak.authentication.authenticators.client.JWTClientAuthenticator;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.ProtocolMapperModel;
 import org.keycloak.models.RealmModel;
-import org.keycloak.authentication.authenticators.client.JWTClientAuthenticator;
 import org.keycloak.protocol.oidc.OIDCAdvancedConfigWrapper;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.mappers.AudienceProtocolMapper;
