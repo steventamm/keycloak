@@ -666,9 +666,11 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         FedSetupConfigurationProfile profile = store.getApplicationProfile();
         if (profile == null) throw new FedSetupValidationException("No Application integration profile is configured");
         AuthenticationManager.AuthResult authenticated = oauthAccessToken(authorization);
-        DirectInstallationTrust trust = store.findTrustByCimdUri(profile.getApplicationTenantId(), authenticated.client().getClientId());
+        String idpIssuer = FedSetupUri.canonicalize(request.getIdpIssuer());
+        DirectInstallationTrust trust = store.findTrustByCimdUri(profile.getApplicationTenantId(), idpIssuer,
+                authenticated.client().getClientId());
         if (trust == null || !FedSetupConfigurationClientService.isAuthorizedClient(authenticated.client(), trust)
-                || !Objects.equals(trust.getIdpIssuer(), FedSetupUri.canonicalize(request.getIdpIssuer()))) {
+                || !Objects.equals(trust.getIdpIssuer(), idpIssuer)) {
             throw new FedSetupValidationException("No active Direct Installation Trust accepts this client, issuer, and Application Tenant");
         }
         if (!trust.getCapabilities().containsAll(request.requestedCapabilities())) {

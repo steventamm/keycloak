@@ -116,8 +116,9 @@ public final class RealmFedSetupStore {
                 && Objects.equals(idpIssuer, trust.getIdpIssuer())).findFirst().orElse(null);
     }
 
-    public DirectInstallationTrust findTrustByCimdUri(String applicationTenantId, String cimdUri) {
+    public DirectInstallationTrust findTrustByCimdUri(String applicationTenantId, String idpIssuer, String cimdUri) {
         return getTrusts().stream().filter(trust -> Objects.equals(applicationTenantId, trust.getApplicationTenantId())
+                && Objects.equals(idpIssuer, trust.getIdpIssuer())
                 && Objects.equals(cimdUri, trust.getInstallationRuntimeCimdUri())).findFirst().orElse(null);
     }
 

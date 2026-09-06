@@ -35,11 +35,6 @@ public final class FedSetupConfigurationClientService {
         if (cimdUri == null || cimdUri.isBlank()) {
             throw new FedSetupValidationException("A CIMD URI is required to create the Configuration API client authorization");
         }
-        boolean anotherTrustUsesCimd = new RealmFedSetupStore(realm).getTrusts().stream()
-                .anyMatch(candidate -> !candidate.getId().equals(trust.getId()) && cimdUri.equals(candidate.getInstallationRuntimeCimdUri()));
-        if (anotherTrustUsesCimd) {
-            throw new FedSetupValidationException("A CIMD runtime may authorize only one Application Tenant and IdP Tenant binding");
-        }
         ClientModel client = realm.getClientByClientId(cimdUri);
         if (client == null) {
             client = realm.addClient(UUID.randomUUID().toString(), cimdUri);
@@ -58,6 +53,10 @@ public final class FedSetupConfigurationClientService {
 
     public static void revoke(RealmModel realm, DirectInstallationTrust trust) {
         if (trust.getInstallationRuntimeCimdUri() == null || trust.getInstallationRuntimeCimdUri().isBlank()) return;
+        boolean anotherActiveTrustUsesCimd = new RealmFedSetupStore(realm).getTrusts().stream()
+                .anyMatch(candidate -> !candidate.getId().equals(trust.getId()) && candidate.isActive()
+                        && trust.getInstallationRuntimeCimdUri().equals(candidate.getInstallationRuntimeCimdUri()));
+        if (anotherActiveTrustUsesCimd) return;
         ClientModel client = realm.getClientByClientId(trust.getInstallationRuntimeCimdUri());
         if (client != null && Boolean.parseBoolean(client.getAttribute(FedSetupConstants.CONFIGURATION_CLIENT_ATTRIBUTE))) {
             client.setEnabled(false);
