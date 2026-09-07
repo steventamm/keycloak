@@ -21,9 +21,10 @@ export interface DirectInstallationTrustRepresentation {
   installationTrustEndpoint?: string;
   installationConsentEndpoint?: string;
   installationConfirmationEndpoint?: string;
-  signingKeyJwk?: string;
-  runtimeJwksUri?: string;
-  runtimeSigningCertificate?: string;
+  installationTrustJwksUri?: string;
+  trustPreAuthorization?: string;
+  deferredPendingId?: string;
+  backChannelEstablished?: boolean;
   capabilities?: string[];
   providerDelegationProfiles?: string[];
   extensionProfiles?: string[];
@@ -41,7 +42,27 @@ export interface FedSetupTrustPreAuthorizationRepresentation {
   providerDelegationProfiles?: string[];
   federationExtensionProfiles?: string[];
   expiresAt?: number;
-  consumed?: boolean;
+  jti?: string;
+  active?: boolean;
+  version?: number;
+}
+
+export interface FedSetupTrustPreAuthorizationResultRepresentation {
+  preAuthorization: FedSetupTrustPreAuthorizationRepresentation;
+  trustPreAuthorization: string;
+}
+
+export interface FedSetupPendingTrustAuthorizationRepresentation {
+  pendingId?: string;
+  applicationTenantId?: string;
+  idpIssuer?: string;
+  cimdUri?: string;
+  capabilities?: string[];
+  providerDelegationProfiles?: string[];
+  federationExtensionProfiles?: string[];
+  status?: string;
+  trustId?: string;
+  expiresAt?: number;
   version?: number;
 }
 

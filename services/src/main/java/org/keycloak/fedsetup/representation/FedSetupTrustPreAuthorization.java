@@ -16,6 +16,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FedSetupTrustPreAuthorization {
     private String id;
+    private String jti;
     private String applicationTenantId;
     private String idpIssuer;
     private String cimdUri;
@@ -26,10 +27,12 @@ public class FedSetupTrustPreAuthorization {
     private long createdAt;
     private long updatedAt;
     private long version;
-    private boolean consumed;
+    private boolean active = true;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public String getJti() { return jti; }
+    public void setJti(String value) { jti = value; }
     public String getApplicationTenantId() { return applicationTenantId; }
     public void setApplicationTenantId(String applicationTenantId) { this.applicationTenantId = applicationTenantId; }
     public String getIdpIssuer() { return idpIssuer; }
@@ -50,8 +53,8 @@ public class FedSetupTrustPreAuthorization {
     public void setUpdatedAt(long updatedAt) { this.updatedAt = updatedAt; }
     public long getVersion() { return version; }
     public void setVersion(long version) { this.version = version; }
-    public boolean isConsumed() { return consumed; }
-    public void setConsumed(boolean consumed) { this.consumed = consumed; }
+    public boolean isActive() { return active; }
+    public void setActive(boolean value) { active = value; }
 
     private static Set<String> copy(Set<String> values) {
         return values == null ? new LinkedHashSet<>() : new LinkedHashSet<>(values);

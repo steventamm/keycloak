@@ -79,7 +79,7 @@ public class ScimRealmResourceFactory implements RealmResourceProviderFactory, E
                             .build(realm.getName())
                             .toString();
 
-                    boolean fedSetupEnabled = Profile.isFeatureEnabled(Feature.FED_SETUP_CONFIGURATION);
+                    boolean fedSetupEnabled = Profile.isFeatureEnabled(Feature.FEDSETUP_CONFIGURATION);
                     FedSetupConnection fedSetupConnection = fedSetupEnabled
                             ? FedSetupScimConnectionService.getAuthorizedConnection(realm, client) : null;
                     if (fedSetupEnabled && FedSetupScimConnectionService.hasConnectionBinding(client) && fedSetupConnection == null) {

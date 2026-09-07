@@ -71,6 +71,8 @@ public class FedSetupWellKnownProvider implements WellKnownProvider {
         result.setInstallationTrustEndpoint(FedSetupUrls.trust(uriInfo, realm));
         result.setInstallationConsentEndpoint(FedSetupUrls.frontConsent(uriInfo, realm));
         result.setInstallationConfirmationEndpoint(FedSetupUrls.frontConfirmation(uriInfo, realm));
+        result.setInstallationTrustJwksUri(Urls.realmIssuer(uriInfo.getBaseUri(), realm.getName()) + "/protocol/openid-connect/certs");
+        result.setInstallationTrustDeferredApprovalSupported(true);
         return result;
     }
 

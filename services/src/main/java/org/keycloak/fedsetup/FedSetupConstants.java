@@ -18,6 +18,13 @@ public final class FedSetupConstants {
     public static final String REALM_RESOURCE_ID = "fedsetup";
     public static final String ADMIN_RESOURCE_ID = "fedsetup";
     public static final int MAX_AUTHORIZATION_LIFESPAN_SECONDS = 300;
+    /** Default and upper bounds for the human-operated back-channel flows. */
+    public static final int DEFAULT_PRE_AUTHORIZATION_LIFESPAN_SECONDS = 30 * 24 * 60 * 60;
+    public static final int MAX_PRE_AUTHORIZATION_LIFESPAN_SECONDS = 90 * 24 * 60 * 60;
+    public static final int DEFAULT_PENDING_TRUST_LIFESPAN_SECONDS = 7 * 24 * 60 * 60;
+    public static final int MAX_PENDING_TRUST_LIFESPAN_SECONDS = 14 * 24 * 60 * 60;
+    public static final int PENDING_TRUST_POLL_INTERVAL_SECONDS = 60 * 60;
+    public static final String TRUST_PRE_AUTHORIZATION_TYPE = "fedsetup-trust-pre-authorization+jwt";
     public static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
     public static final String ETAG_HEADER = "ETag";
     public static final String IF_MATCH_HEADER = "If-Match";

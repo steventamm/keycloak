@@ -199,7 +199,7 @@ public class Profile {
 
         SCIM_API("Exposes a SCIM API for managing realm resources on a per-realm basis", Type.PREVIEW),
 
-        FED_SETUP_CONFIGURATION("FedSetup federation setup", Type.PREVIEW),
+        FEDSETUP_CONFIGURATION("FedSetup federation setup", Type.PREVIEW),
 
         RESOURCE_INDICATORS("Resource Indicators for OAuth 2.0", Type.EXPERIMENTAL),
 

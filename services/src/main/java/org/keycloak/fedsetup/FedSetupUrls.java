@@ -30,6 +30,11 @@ public final class FedSetupUrls {
         return resourceBase(uriInfo, realm) + "/trust";
     }
 
+    /** IdP-side recipient for an optional, advisory deferred-approval notification. */
+    public static String trustNotification(UriInfo uriInfo, RealmModel realm, String trustId) {
+        return trust(uriInfo, realm) + "/notifications/" + trustId;
+    }
+
     public static String frontConsent(UriInfo uriInfo, RealmModel realm) {
         return resourceBase(uriInfo, realm) + "/front/authorize";
     }

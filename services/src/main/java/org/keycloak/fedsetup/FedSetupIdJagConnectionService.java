@@ -235,10 +235,7 @@ public final class FedSetupIdJagConnectionService {
             provider.setAlias(alias);
             provider.setProviderId("oidc");
         }
-        String jwksUri = trust.getRuntimeJwksUri();
-        if (trust.getInstallationRuntimeCimdUri() != null && !trust.getInstallationRuntimeCimdUri().isBlank()) {
-            jwksUri = FedSetupOidcMetadataResolver.resolve(session, trust.getIdpIssuer()).jwksUri();
-        }
+        String jwksUri = FedSetupOidcMetadataResolver.resolve(session, trust.getIdpIssuer()).jwksUri();
         if (blank(jwksUri)) {
             throw new FedSetupValidationException("Direct Installation Trust has no approved OIDC JWKS source for ID-JAG");
         }

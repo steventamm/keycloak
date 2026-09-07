@@ -4,6 +4,7 @@ import type {
   FedSetupConnectionRepresentation,
   FedSetupInstallationRepresentation,
   FedSetupRuntimeRepresentation,
+  FedSetupPendingTrustAuthorizationRepresentation,
   FedSetupScimProvisioningTaskRepresentation,
   FedSetupTrustPreAuthorizationRepresentation,
 } from "@keycloak/keycloak-admin-client";
@@ -15,6 +16,7 @@ import {
 import {
   AlertVariant,
   Button,
+  ClipboardCopy,
   Form,
   FormGroup,
   Label,
@@ -48,6 +50,7 @@ type FedSetupState = {
   scimTasks: FedSetupScimProvisioningTaskRepresentation[];
   runtime: FedSetupRuntimeRepresentation;
   preAuthorizations: FedSetupTrustPreAuthorizationRepresentation[];
+  pendingTrustAuthorizations: FedSetupPendingTrustAuthorizationRepresentation[];
 };
 
 const Status = ({ value }: { value?: string }) => (
@@ -73,6 +76,7 @@ export const FedSetupTab = () => {
   const [extensionProfiles, setExtensionProfiles] = useState(
     KEYCLOAK_SCIM_CREDENTIAL_PROFILE,
   );
+  const [issuedPreAuthorization, setIssuedPreAuthorization] = useState("");
 
   const refresh = () => setRefreshKey((value) => value + 1);
 
@@ -86,6 +90,7 @@ export const FedSetupTab = () => {
         scimTasks,
         runtime,
         preAuthorizations,
+        pendingTrustAuthorizations,
       ] = await Promise.all([
         adminClient.fedSetup.getApplicationProfile(),
         adminClient.fedSetup.getTrusts(),
@@ -94,6 +99,7 @@ export const FedSetupTab = () => {
         adminClient.fedSetup.getScimProvisioningTasks(),
         adminClient.fedSetup.getRuntime(),
         adminClient.fedSetup.getTrustPreAuthorizations(),
+        adminClient.fedSetup.getPendingTrustAuthorizations(),
       ]);
       return {
         applicationProfile,
@@ -103,6 +109,7 @@ export const FedSetupTab = () => {
         scimTasks,
         runtime,
         preAuthorizations,
+        pendingTrustAuthorizations,
       };
     },
     setState,
@@ -146,7 +153,7 @@ export const FedSetupTab = () => {
       return;
     }
     try {
-      await adminClient.fedSetup.createTrustPreAuthorization({
+      const result = await adminClient.fedSetup.createTrustPreAuthorization({
         applicationTenantId,
         idpIssuer,
         cimdUri,
@@ -154,6 +161,7 @@ export const FedSetupTab = () => {
         providerDelegationProfiles: [],
         federationExtensionProfiles: terms(extensionProfiles),
       });
+      setIssuedPreAuthorization(result.trustPreAuthorization);
       addAlert(
         "Back-channel Direct Installation Trust pre-authorization created",
         AlertVariant.success,
@@ -167,6 +175,54 @@ export const FedSetupTab = () => {
     }
   };
 
+  const approvePending = async (
+    pending: FedSetupPendingTrustAuthorizationRepresentation,
+  ) => {
+    if (!pending.pendingId || pending.version === undefined) return;
+    try {
+      await adminClient.fedSetup.approvePendingTrustAuthorization({
+        pendingId: pending.pendingId,
+        version: pending.version,
+      });
+      addAlert("Deferred Direct Installation Trust approved", AlertVariant.success);
+      refresh();
+    } catch (error) {
+      addError("Deferred Direct Installation Trust could not be approved", error);
+    }
+  };
+
+  const cancelPreAuthorization = async (
+    preAuthorization: FedSetupTrustPreAuthorizationRepresentation,
+  ) => {
+    if (!preAuthorization.id || preAuthorization.version === undefined) return;
+    try {
+      await adminClient.fedSetup.cancelTrustPreAuthorization({
+        preAuthorizationId: preAuthorization.id,
+        version: preAuthorization.version,
+      });
+      addAlert("Trust Pre-Authorization cancelled", AlertVariant.success);
+      refresh();
+    } catch (error) {
+      addError("Trust Pre-Authorization could not be cancelled", error);
+    }
+  };
+
+  const denyPending = async (
+    pending: FedSetupPendingTrustAuthorizationRepresentation,
+  ) => {
+    if (!pending.pendingId || pending.version === undefined) return;
+    try {
+      await adminClient.fedSetup.denyPendingTrustAuthorization({
+        pendingId: pending.pendingId,
+        version: pending.version,
+      });
+      addAlert("Deferred Direct Installation Trust denied", AlertVariant.success);
+      refresh();
+    } catch (error) {
+      addError("Deferred Direct Installation Trust could not be denied", error);
+    }
+  };
+
   if (!state) return <KeycloakSpinner />;
 
   const {
@@ -177,6 +233,7 @@ export const FedSetupTab = () => {
     scimTasks,
     runtime,
     preAuthorizations,
+    pendingTrustAuthorizations,
   } = state;
   return (
     <PageSection variant="light" className="pf-v5-u-p-md">
@@ -230,9 +287,9 @@ export const FedSetupTab = () => {
           </Title>
           <TextContent>
             <Text component={TextVariants.small}>
-              Exchange these IdP-side handoff values out of band, then record
-              the exact IdP issuer and CIMD URI before that runtime can create a
-              trust.
+              Create a signed handoff for the IdP administrator. It authorizes
+              only this tenant, issuer, runtime, and requested scope; replacing
+              or cancelling it revokes the old JWS.
             </Text>
             <Text component={TextVariants.small}>
               Issuer: {runtime.idp_issuer}
@@ -285,7 +342,68 @@ export const FedSetupTab = () => {
               {preAuthorizations.map((entry) => (
                 <li key={entry.id}>
                   {entry.idpIssuer} — {entry.cimdUri}{" "}
-                  <Status value={entry.consumed ? "CONSUMED" : "PENDING"} />
+                  <Status value={entry.active ? "ACTIVE" : "REVOKED"} />
+                  {entry.active && (
+                    <Button
+                      variant="link"
+                      isInline
+                      onClick={() => cancelPreAuthorization(entry)}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {issuedPreAuthorization && (
+            <FormGroup
+              label="Signed Trust Pre-Authorization"
+              fieldId="fedsetup-trust-pre-authorization"
+            >
+              <ClipboardCopy
+                id="fedsetup-trust-pre-authorization"
+                isReadOnly
+                isExpanded
+              >
+                {issuedPreAuthorization}
+              </ClipboardCopy>
+            </FormGroup>
+          )}
+        </StackItem>
+
+        <StackItem>
+          <Title headingLevel="h2">
+            Pending Direct Installation Trust authorizations
+          </Title>
+          <TextContent>
+            <Text component={TextVariants.small}>
+              These are IdP-initiated deferred proposals. Approval creates the
+              trust; the IdP obtains the authoritative result with its original
+              Idempotency-Key and a fresh runtime JWT.
+            </Text>
+          </TextContent>
+          {pendingTrustAuthorizations.length === 0 ? (
+            <Text>No deferred Direct Installation Trust proposals are pending.</Text>
+          ) : (
+            <ul>
+              {pendingTrustAuthorizations.map((pending) => (
+                <li key={pending.pendingId}>
+                  <strong>{pending.applicationTenantId}</strong> — {pending.idpIssuer}{" "}
+                  <Status value={pending.status} />
+                  <Text component={TextVariants.small}>
+                    Runtime: {pending.cimdUri}; capabilities: {pending.capabilities?.join(", ") || "none"}
+                  </Text>
+                  {pending.status === "PENDING" && (
+                    <>
+                      <Button variant="link" isInline onClick={() => approvePending(pending)}>
+                        Approve
+                      </Button>
+                      <Button variant="link" isInline onClick={() => denyPending(pending)}>
+                        Deny
+                      </Button>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

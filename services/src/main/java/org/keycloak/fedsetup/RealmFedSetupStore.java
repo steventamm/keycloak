@@ -20,7 +20,9 @@ import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.fedsetup.representation.FedSetupCredentialReference;
 import org.keycloak.fedsetup.representation.FedSetupFrontChannelTransaction;
+import org.keycloak.fedsetup.representation.FedSetupIdpPlatformPolicy;
 import org.keycloak.fedsetup.representation.FedSetupInstallation;
+import org.keycloak.fedsetup.representation.FedSetupPendingTrustAuthorization;
 import org.keycloak.fedsetup.representation.FedSetupScimProvisioningTask;
 import org.keycloak.fedsetup.representation.FedSetupTrustPreAuthorization;
 import org.keycloak.models.RealmModel;
@@ -42,6 +44,10 @@ public final class RealmFedSetupStore {
     private static final String TRUST_INDEX = PREFIX + "trust.ids";
     private static final String PRE_AUTHORIZATION = PREFIX + "trust-pre-authorization.";
     private static final String PRE_AUTHORIZATION_INDEX = PREFIX + "trust-pre-authorization.ids";
+    private static final String IDP_PLATFORM_POLICY = PREFIX + "idp-platform-policy.";
+    private static final String IDP_PLATFORM_POLICY_INDEX = PREFIX + "idp-platform-policy.ids";
+    private static final String PENDING_TRUST_AUTHORIZATION = PREFIX + "pending-trust-authorization.";
+    private static final String PENDING_TRUST_AUTHORIZATION_INDEX = PREFIX + "pending-trust-authorization.ids";
     private static final String FRONT_CHANNEL_TRANSACTION = PREFIX + "front-channel-transaction.";
     private static final String FRONT_CHANNEL_TRANSACTION_INDEX = PREFIX + "front-channel-transaction.ids";
     private static final String CONNECTION = PREFIX + "connection.";
@@ -146,7 +152,7 @@ public final class RealmFedSetupStore {
     }
 
     public FedSetupTrustPreAuthorization findTrustPreAuthorization(String applicationTenantId, String idpIssuer, String cimdUri) {
-        return getTrustPreAuthorizations().stream().filter(entry -> !entry.isConsumed()
+        return getTrustPreAuthorizations().stream().filter(entry -> entry.isActive()
                 && Objects.equals(applicationTenantId, entry.getApplicationTenantId())
                 && Objects.equals(idpIssuer, entry.getIdpIssuer())
                 && Objects.equals(cimdUri, entry.getCimdUri())).findFirst().orElse(null);
@@ -165,6 +171,89 @@ public final class RealmFedSetupStore {
         entry.setUpdatedAt(Time.currentTime());
         write(PRE_AUTHORIZATION + entry.getId(), entry);
         return copy(entry, FedSetupTrustPreAuthorization.class);
+    }
+
+    /**
+     * Replaces the active JTI for one binding in the same realm transaction.
+     * Historical records remain available for auditing but cannot authorize a
+     * later runtime request.
+     */
+    public FedSetupTrustPreAuthorization replaceTrustPreAuthorization(FedSetupTrustPreAuthorization entry) {
+        FedSetupTrustPreAuthorization current = findTrustPreAuthorization(entry.getApplicationTenantId(), entry.getIdpIssuer(), entry.getCimdUri());
+        if (current != null) {
+            current.setActive(false);
+            updateTrustPreAuthorization(current, current.getVersion());
+        }
+        return createTrustPreAuthorization(entry);
+    }
+
+    public FedSetupIdpPlatformPolicy createIdpPlatformPolicy(FedSetupIdpPlatformPolicy policy) {
+        Objects.requireNonNull(policy, "policy");
+        if (policy.getId() == null) policy.setId(UUID.randomUUID().toString());
+        if (getIdpPlatformPolicy(policy.getId()) != null) {
+            throw new FedSetupValidationException("IdP Platform policy already exists");
+        }
+        long now = Time.currentTime();
+        policy.setVersion(1);
+        policy.setCreatedAt(now);
+        policy.setUpdatedAt(now);
+        write(IDP_PLATFORM_POLICY + policy.getId(), policy);
+        addToIndex(IDP_PLATFORM_POLICY_INDEX, policy.getId());
+        return copy(policy, FedSetupIdpPlatformPolicy.class);
+    }
+
+    public FedSetupIdpPlatformPolicy getIdpPlatformPolicy(String id) {
+        return read(IDP_PLATFORM_POLICY + id, FedSetupIdpPlatformPolicy.class);
+    }
+
+    public List<FedSetupIdpPlatformPolicy> getIdpPlatformPolicies() {
+        return readIndexed(IDP_PLATFORM_POLICY_INDEX, IDP_PLATFORM_POLICY, FedSetupIdpPlatformPolicy.class);
+    }
+
+    public boolean hasIdpPlatformPolicy(String idpIssuer, String cimdUri) {
+        return getIdpPlatformPolicies().stream().anyMatch(policy -> Objects.equals(idpIssuer, policy.getIdpIssuer())
+                && Objects.equals(cimdUri, policy.getCimdUri()));
+    }
+
+    public FedSetupPendingTrustAuthorization createPendingTrustAuthorization(FedSetupPendingTrustAuthorization entry) {
+        Objects.requireNonNull(entry, "entry");
+        if (entry.getPendingId() == null) entry.setPendingId(UUID.randomUUID().toString());
+        if (getPendingTrustAuthorization(entry.getPendingId()) != null) {
+            throw new FedSetupValidationException("Pending Direct Installation Trust authorization already exists");
+        }
+        long now = Time.currentTime();
+        entry.setVersion(1);
+        entry.setCreatedAt(now);
+        entry.setUpdatedAt(now);
+        write(PENDING_TRUST_AUTHORIZATION + entry.getPendingId(), entry);
+        addToIndex(PENDING_TRUST_AUTHORIZATION_INDEX, entry.getPendingId());
+        return copy(entry, FedSetupPendingTrustAuthorization.class);
+    }
+
+    public FedSetupPendingTrustAuthorization getPendingTrustAuthorization(String pendingId) {
+        return read(PENDING_TRUST_AUTHORIZATION + pendingId, FedSetupPendingTrustAuthorization.class);
+    }
+
+    public List<FedSetupPendingTrustAuthorization> getPendingTrustAuthorizations() {
+        return readIndexed(PENDING_TRUST_AUTHORIZATION_INDEX, PENDING_TRUST_AUTHORIZATION, FedSetupPendingTrustAuthorization.class);
+    }
+
+    public FedSetupPendingTrustAuthorization findPendingTrustAuthorization(String idempotencyKey, String applicationTenantId,
+                                                                            String idpIssuer) {
+        return getPendingTrustAuthorizations().stream().filter(entry -> Objects.equals(idempotencyKey, entry.getOriginalIdempotencyKey())
+                && Objects.equals(applicationTenantId, entry.getApplicationTenantId())
+                && Objects.equals(idpIssuer, entry.getIdpIssuer())).findFirst().orElse(null);
+    }
+
+    public FedSetupPendingTrustAuthorization updatePendingTrustAuthorization(FedSetupPendingTrustAuthorization entry, long expectedVersion) {
+        FedSetupPendingTrustAuthorization current = getPendingTrustAuthorization(entry.getPendingId());
+        if (current == null) throw new FedSetupValidationException("Unknown pending Direct Installation Trust authorization");
+        requireVersion(current.getVersion(), expectedVersion);
+        entry.setCreatedAt(current.getCreatedAt());
+        entry.setVersion(current.getVersion() + 1);
+        entry.setUpdatedAt(Time.currentTime());
+        write(PENDING_TRUST_AUTHORIZATION + entry.getPendingId(), entry);
+        return copy(entry, FedSetupPendingTrustAuthorization.class);
     }
 
     public FedSetupFrontChannelTransaction createFrontChannelTransaction(FedSetupFrontChannelTransaction transaction) {

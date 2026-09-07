@@ -7,8 +7,6 @@
  */
 package org.keycloak.fedsetup;
 
-import java.security.MessageDigest;
-import java.security.PublicKey;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,20 +31,17 @@ import org.keycloak.broker.oidc.OIDCIdentityProvider;
 import org.keycloak.broker.oidc.OIDCIdentityProviderConfig;
 import org.keycloak.common.Profile;
 import org.keycloak.common.util.Time;
-import org.keycloak.crypto.Algorithm;
-import org.keycloak.crypto.KeyUse;
-import org.keycloak.crypto.KeyWrapper;
 import org.keycloak.events.admin.OperationType;
 import org.keycloak.events.admin.ResourceType;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
 import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
+import org.keycloak.fedsetup.representation.FedSetupIdpPlatformPolicy;
 import org.keycloak.fedsetup.representation.FedSetupInstallation;
+import org.keycloak.fedsetup.representation.FedSetupPendingTrustAuthorization;
 import org.keycloak.fedsetup.representation.FedSetupScimProvisioningTask;
 import org.keycloak.fedsetup.representation.FedSetupTrustPreAuthorization;
-import org.keycloak.fedsetup.representation.ManualConnectionAdoption;
-import org.keycloak.jose.jwk.JWK;
-import org.keycloak.jose.jwk.JWKParser;
+import org.keycloak.fedsetup.representation.FedSetupTrustPreAuthorizationResult;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.KeycloakSession;
@@ -140,7 +135,7 @@ public class FedSetupAdminResource {
         auth.realm().requireManageRealm();
         validateTrust(trust, false);
         DirectInstallationTrust created = store.createTrust(trust);
-        if (created.isActive() && !blank(created.getInstallationRuntimeCimdUri())) {
+        if (created.isActive()) {
             FedSetupConfigurationClientService.authorize(session, realm, created);
         }
         DirectInstallationTrust redacted = redact(created);
@@ -165,26 +160,110 @@ public class FedSetupAdminResource {
     public Response createTrustPreAuthorization(FedSetupTrustPreAuthorization entry) {
         auth.realm().requireManageRealm();
         validateTrustPreAuthorization(entry);
-        FedSetupTrustPreAuthorization created = store.createTrustPreAuthorization(entry);
+        FedSetupConfigurationProfile profile = store.getApplicationProfile();
+        String authorization = TrustPreAuthorizationService.issue(session, realm, profile,
+                FedSetupUrls.trust(session.getContext().getUri(UrlType.FRONTEND), realm), entry);
+        FedSetupTrustPreAuthorization created = store.replaceTrustPreAuthorization(entry);
         audit(OperationType.CREATE, created);
         return Response.status(Response.Status.CREATED).type(MediaType.APPLICATION_JSON)
-                .header(FedSetupConstants.ETAG_HEADER, etag(created.getVersion())).entity(created).build();
+                .header(FedSetupConstants.ETAG_HEADER, etag(created.getVersion()))
+                .entity(new FedSetupTrustPreAuthorizationResult(created, authorization)).build();
     }
 
     @DELETE
     @Path("trust-pre-authorizations/{preAuthorizationId}")
     public Response cancelTrustPreAuthorization(@PathParam("preAuthorizationId") String preAuthorizationId,
-                                                @HeaderParam(FedSetupConstants.IF_MATCH_HEADER) String ifMatch) {
+                                                @HeaderParam(FedSetupConstants.IF_MATCH_HEADER) String ifMatch,
+                                                @QueryParam("version") Long version) {
         auth.realm().requireManageRealm();
         FedSetupTrustPreAuthorization entry = store.getTrustPreAuthorization(preAuthorizationId);
         if (entry == null) throw new NotFoundException();
-        if (!etag(entry.getVersion()).equals(ifMatch)) {
+        if (!versionMatches(entry.getVersion(), ifMatch, version)) {
             return error(Response.Status.PRECONDITION_FAILED, "ETag does not match the current resource version");
         }
-        entry.setConsumed(true);
+        entry.setActive(false);
         FedSetupTrustPreAuthorization updated = store.updateTrustPreAuthorization(entry, entry.getVersion());
         audit(OperationType.DELETE, updated);
         return Response.noContent().header(FedSetupConstants.ETAG_HEADER, etag(updated.getVersion())).build();
+    }
+
+    /** Lists IdP-initiated trust proposals awaiting this realm's administrator. */
+    @GET
+    @Path("pending-trust-authorizations")
+    @Produces(MediaType.APPLICATION_JSON)
+    public List<FedSetupPendingTrustAuthorization> getPendingTrustAuthorizations() {
+        auth.realm().requireViewRealm();
+        return store.getPendingTrustAuthorizations();
+    }
+
+    /** Lists Application-admin-created bindings for hosted IdP installation runtimes. */
+    @GET
+    @Path("idp-platform-policies")
+    @Produces(MediaType.APPLICATION_JSON)
+    public List<FedSetupIdpPlatformPolicy> getIdpPlatformPolicies() {
+        auth.realm().requireViewRealm();
+        return store.getIdpPlatformPolicies();
+    }
+
+    /** Adds an explicit cross-origin issuer-to-runtime binding for deferred approval. */
+    @POST
+    @Path("idp-platform-policies")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response createIdpPlatformPolicy(FedSetupIdpPlatformPolicy policy) {
+        auth.realm().requireManageRealm();
+        if (policy == null || blank(policy.getIdpIssuer()) || blank(policy.getCimdUri())) {
+            throw new FedSetupValidationException("idpIssuer and cimdUri are required");
+        }
+        policy.setIdpIssuer(FedSetupUri.canonicalize(policy.getIdpIssuer()));
+        policy.setCimdUri(FedSetupUri.canonicalize(policy.getCimdUri()));
+        FedSetupIdpPlatformPolicy created = store.createIdpPlatformPolicy(policy);
+        audit(OperationType.CREATE, created);
+        return Response.status(Response.Status.CREATED).entity(created)
+                .header(FedSetupConstants.ETAG_HEADER, etag(created.getVersion())).build();
+    }
+
+    /** Approves the exact verified binding held by a deferred Back-Channel proposal. */
+    @POST
+    @Path("pending-trust-authorizations/{pendingId}/approve")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response approvePendingTrustAuthorization(@PathParam("pendingId") String pendingId,
+                                                     @HeaderParam(FedSetupConstants.IF_MATCH_HEADER) String ifMatch,
+                                                     @QueryParam("version") Long version) {
+        auth.realm().requireManageRealm();
+        FedSetupPendingTrustAuthorization pending = store.getPendingTrustAuthorization(pendingId);
+        if (pending == null) throw new NotFoundException();
+        if (!versionMatches(pending.getVersion(), ifMatch, version)) {
+            return error(Response.Status.PRECONDITION_FAILED, "ETag does not match the current resource version");
+        }
+        DirectInstallationTrust trust = BackChannelTrustService.approve(session, realm, store, pending);
+        FedSetupPendingTrustAuthorization approved = store.getPendingTrustAuthorization(pendingId);
+        TrustApprovalNotifier.notifyApproved(session, realm, store, approved);
+        audit(OperationType.UPDATE, approved);
+        return Response.ok(Map.of("pending_id", pendingId, "trust_id", trust.getId(), "status", approved.getStatus()))
+                .header(FedSetupConstants.ETAG_HEADER, etag(approved.getVersion())).build();
+    }
+
+    /** Denies a deferred proposal without revealing the reason to the caller. */
+    @POST
+    @Path("pending-trust-authorizations/{pendingId}/deny")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response denyPendingTrustAuthorization(@PathParam("pendingId") String pendingId,
+                                                  @HeaderParam(FedSetupConstants.IF_MATCH_HEADER) String ifMatch,
+                                                  @QueryParam("version") Long version) {
+        auth.realm().requireManageRealm();
+        FedSetupPendingTrustAuthorization pending = store.getPendingTrustAuthorization(pendingId);
+        if (pending == null) throw new NotFoundException();
+        if (!versionMatches(pending.getVersion(), ifMatch, version)) {
+            return error(Response.Status.PRECONDITION_FAILED, "ETag does not match the current resource version");
+        }
+        if (!"PENDING".equals(pending.getStatus())) {
+            return error(Response.Status.CONFLICT, "The pending Direct Installation Trust authorization is no longer awaiting approval");
+        }
+        pending.setStatus("DENIED");
+        FedSetupPendingTrustAuthorization denied = store.updatePendingTrustAuthorization(pending, pending.getVersion());
+        audit(OperationType.UPDATE, denied);
+        return Response.ok(denied).header(FedSetupConstants.ETAG_HEADER, etag(denied.getVersion())).build();
     }
 
     @GET
@@ -206,7 +285,7 @@ public class FedSetupAdminResource {
         DirectInstallationTrust established = OutboundTrustDispatcher.establishBackChannel(session, realm, store, trust);
         audit(OperationType.UPDATE, redact(established));
         return Response.ok(Map.of("application_tenant_id", established.getApplicationTenantId(), "idp_issuer", established.getIdpIssuer(),
-                "status", "ESTABLISHED")).build();
+                "status", established.isBackChannelEstablished() ? "ESTABLISHED" : "PENDING_APPROVAL")).build();
     }
 
     /** Starts the administrator's browser at the Section 5.2 authorization endpoint. */
@@ -232,9 +311,6 @@ public class FedSetupAdminResource {
     public Response purgeSigningKeys(@PathParam("trustId") String trustId) {
         auth.realm().requireManageRealm();
         DirectInstallationTrust trust = store.requireTrust(trustId);
-        if (blank(trust.getInstallationRuntimeCimdUri()) && blank(trust.getRuntimeJwksUri())) {
-            return error(Response.Status.CONFLICT, "The Direct Installation Trust does not use a dynamic signing-key source");
-        }
         FedSetupConnection connection = store.findConnectionByTrust(trustId);
         IdentityProviderModel broker = connection == null ? null : realm.getIdentityProviderByAlias(connection.getBrokerAlias());
         boolean enabled = broker != null && broker.isEnabled();
@@ -287,9 +363,6 @@ public class FedSetupAdminResource {
         if (!etag(current.getVersion()).equals(ifMatch)) {
             return error(Response.Status.PRECONDITION_FAILED, "ETag does not match the current resource version");
         }
-        if (blank(trust.getReceiverCredentialVaultReference())) {
-            trust.setReceiverCredentialVaultReference(current.getReceiverCredentialVaultReference());
-        }
         validateTrust(trust, true);
         if ((!Objects.equals(current.getApplicationTenantId(), trust.getApplicationTenantId())
                 || !Objects.equals(current.getIdpIssuer(), trust.getIdpIssuer())
@@ -305,7 +378,7 @@ public class FedSetupAdminResource {
             return error(Response.Status.CONFLICT, "A Direct Installation Trust already exists for this Application Tenant and IdP issuer");
         }
         DirectInstallationTrust updated = store.updateTrust(trust, current.getVersion());
-        if (updated.isActive() && !blank(updated.getInstallationRuntimeCimdUri())) {
+        if (updated.isActive()) {
             FedSetupConfigurationClientService.authorize(session, realm, updated);
         } else if (!updated.isActive() && current.isActive()) {
             FedSetupConfigurationClientService.revoke(realm, updated);
@@ -321,50 +394,6 @@ public class FedSetupAdminResource {
     public List<FedSetupConnection> getConnections() {
         auth.realm().requireViewRealm();
         return store.getConnections().stream().map(this::redact).toList();
-    }
-
-    /** Binds an existing, manually configured broker to the approved tenant trust without changing its configuration. */
-    @POST
-    @Path("connections/adopt")
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
-    public Response adoptManualConnection(ManualConnectionAdoption adoption) {
-        auth.realm().requireManageRealm();
-        if (adoption == null || blank(adoption.getTrustId()) || blank(adoption.getBrokerAlias())) {
-            throw new FedSetupValidationException("trustId and brokerAlias are required");
-        }
-        DirectInstallationTrust trust = store.requireTrust(adoption.getTrustId());
-        if (!trust.isActive()) throw new FedSetupValidationException("Direct Installation Trust is not active");
-        if (store.findConnectionByTrust(trust.getId()) != null || store.getConnections().stream()
-                .anyMatch(connection -> adoption.getBrokerAlias().equals(connection.getBrokerAlias()))) {
-            throw new FedSetupValidationException("Broker or Direct Installation Trust is already bound to a FedSetup Connection");
-        }
-        IdentityProviderModel broker = realm.getIdentityProviderByAlias(adoption.getBrokerAlias());
-        if (broker == null || !Set.of("oidc", "saml").contains(broker.getProviderId())) {
-            throw new FedSetupValidationException("A pre-existing OIDC or SAML identity broker is required");
-        }
-        Map<String, String> sso = adoptedSso(broker, trust);
-        FedSetupConnection connection = new FedSetupConnection();
-        connection.setTrustId(trust.getId());
-        connection.setApplicationTenantId(trust.getApplicationTenantId());
-        connection.setIdpIssuer(trust.getIdpIssuer());
-        connection.setProtocol(broker.getProviderId());
-        connection.setBrokerAlias(broker.getAlias());
-        connection.setStatus(broker.isEnabled() ? "ACTIVE" : "DEACTIVATED");
-        connection.setSso(sso);
-        // Adoption establishes immutable ownership of the pre-existing SSO
-        // configuration.  It does not configure every capability merely
-        // because the Direct Installation Trust would permit it.
-        connection.setCapabilities(Set.of());
-        connection.setExtensionProfiles(Set.of());
-        FedSetupConnection created = store.createConnection(connection);
-        FedSetupScimConnectionService.create(session, realm, created, trust);
-        if (created.getScimServiceClientId() != null) {
-            created = store.updateConnection(created, created.getVersion());
-        }
-        FedSetupConnection redacted = redact(created);
-        audit(OperationType.CREATE, redacted);
-        return Response.status(Response.Status.CREATED).entity(redacted).header(FedSetupConstants.ETAG_HEADER, etag(created.getVersion())).build();
     }
 
     @GET
@@ -534,18 +563,15 @@ public class FedSetupAdminResource {
         if (trust == null || blank(trust.getApplicationTenantId()) || blank(trust.getIdpIssuer())) {
             throw new FedSetupValidationException("applicationTenantId and idpIssuer are required");
         }
-        boolean cimdTrust = !blank(trust.getInstallationRuntimeCimdUri());
-        if (!cimdTrust && blank(trust.getSigningKeyJwk())) {
-            throw new FedSetupValidationException("A legacy signingKeyJwk or a CIMD installation runtime is required");
+        if (blank(trust.getInstallationRuntimeCimdUri())) {
+            throw new FedSetupValidationException("A CIMD installation runtime is required");
         }
         trust.setCanonicalApplicationBaseUri(FedSetupUri.canonicalize(trust.getCanonicalApplicationBaseUri()));
         trust.setIdpIssuer(FedSetupUri.canonicalize(trust.getIdpIssuer()));
-        if (cimdTrust) {
-            trust.setInstallationRuntimeCimdUri(FedSetupUri.canonicalize(trust.getInstallationRuntimeCimdUri()));
-            if (!Set.of(FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI, FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI)
-                    .contains(trust.getTrustProfileUri())) {
-                throw new FedSetupValidationException("CIMD Direct Installation Trust requires a supported IETF trust profile URI");
-            }
+        trust.setInstallationRuntimeCimdUri(FedSetupUri.canonicalize(trust.getInstallationRuntimeCimdUri()));
+        if (!Set.of(FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI, FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI)
+                .contains(trust.getTrustProfileUri())) {
+            throw new FedSetupValidationException("Direct Installation Trust requires a supported IETF trust profile URI");
         }
         if (trust.getConfigurationEndpoint() != null) {
             trust.setConfigurationEndpoint(FedSetupUri.canonicalize(trust.getConfigurationEndpoint()));
@@ -562,14 +588,9 @@ public class FedSetupAdminResource {
         if (trust.getInstallationConfirmationEndpoint() != null) {
             trust.setInstallationConfirmationEndpoint(FedSetupUri.canonicalize(trust.getInstallationConfirmationEndpoint()));
         }
-        if (trust.getRuntimeJwksUri() != null) {
-            trust.setRuntimeJwksUri(FedSetupUri.canonicalize(trust.getRuntimeJwksUri()));
+        if (trust.getInstallationTrustJwksUri() != null) {
+            trust.setInstallationTrustJwksUri(FedSetupUri.canonicalize(trust.getInstallationTrustJwksUri()));
         }
-        if (trust.getReceiverCredentialVaultReference() != null
-                && !trust.getReceiverCredentialVaultReference().matches("\\$\\{vault\\.[A-Za-z0-9_.-]+}")) {
-            throw new FedSetupValidationException("Receiver credentials must be a Keycloak Vault reference");
-        }
-        if (!cimdTrust) validatePinnedJwk(trust.getSigningKeyJwk());
         validateTerms(trust.getCapabilities(), "capability");
         validateTerms(trust.getProviderDelegationProfiles(), "provider delegation profile");
         validateTerms(trust.getExtensionProfiles(), "extension profile");
@@ -582,61 +603,59 @@ public class FedSetupAdminResource {
         if (trust.getCapabilities().contains("id_jag") && !Profile.isFeatureEnabled(Profile.Feature.IDENTITY_ASSERTION_JWT)) {
             throw new FedSetupValidationException("The Identity Assertion JWT preview feature must be enabled before approving id_jag");
         }
-        if (!cimdTrust && !trust.getExtensionProfiles().contains(FedSetupConstants.FEATURE_PROFILE_URI)) {
-            throw new FedSetupValidationException("The Keycloak Direct Installation Trust profile must be explicitly approved");
-        }
         boolean outboundTrust = realmIssuer().equals(trust.getIdpIssuer());
         if (outboundTrust) {
             if (trust.getCapabilities().contains("id_jag")) {
                 throw new FedSetupValidationException("This Keycloak preview receives ID-JAG assertions but does not issue them");
             }
-            if (cimdTrust) {
-                if (!trust.getInstallationRuntimeCimdUri().equals(FedSetupUrls.cimd(session.getContext().getUri(UrlType.FRONTEND), realm))) {
-                    throw new FedSetupValidationException("Outbound Direct Installation Trust must use this realm's CIMD installation runtime");
-                }
-            } else {
-                validateOutboundSigningKey(trust.getSigningKeyJwk());
+            if (!trust.getInstallationRuntimeCimdUri().equals(FedSetupUrls.cimd(session.getContext().getUri(UrlType.FRONTEND), realm))) {
+                throw new FedSetupValidationException("Outbound Direct Installation Trust must use this realm's CIMD installation runtime");
             }
             if (blank(trust.getConfigurationEndpoint()) || !sameOrigin(trust.getCanonicalApplicationBaseUri(), trust.getConfigurationEndpoint())) {
                 throw new FedSetupValidationException("Outbound Direct Installation Trust must pin a configuration endpoint on the approved Application origin");
             }
-            if (cimdTrust && FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())) {
+            if (FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())) {
                 if (blank(trust.getInstallationTrustEndpoint()) || !sameOrigin(trust.getCanonicalApplicationBaseUri(), trust.getInstallationTrustEndpoint())) {
                     throw new FedSetupValidationException("Back-channel Direct Installation Trust must pin an installation trust endpoint on the approved Application origin");
                 }
             }
-            if (cimdTrust && FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())) {
+            if (FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())) {
                 if (blank(trust.getInstallationConsentEndpoint()) || blank(trust.getInstallationConfirmationEndpoint())
                         || !sameOrigin(trust.getCanonicalApplicationBaseUri(), trust.getInstallationConsentEndpoint())
                         || !sameOrigin(trust.getCanonicalApplicationBaseUri(), trust.getInstallationConfirmationEndpoint())) {
                     throw new FedSetupValidationException("Front-channel Direct Installation Trust must pin consent and confirmation endpoints on the approved Application origin");
                 }
             }
-            if (cimdTrust) {
-                org.keycloak.fedsetup.representation.FedSetupDiscoveryRepresentation discovery =
-                        FedSetupApplicationDiscoveryService.discover(session, trust.getCanonicalApplicationBaseUri());
-                if (!trust.getConfigurationEndpoint().equals(FedSetupUri.canonicalize(discovery.getConfigurationEndpoint()))
-                        || !discovery.getDirectInstallationTrustProfilesSupported().contains(trust.getTrustProfileUri())) {
-                    throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered Application configuration endpoint or profile support");
-                }
-                String discoveredTemplate = FedSetupUri.canonicalizeConnectionEndpointTemplate(discovery.getConnectionEndpointTemplate());
-                if (trust.getConnectionEndpointTemplate() != null && !trust.getConnectionEndpointTemplate().equals(discoveredTemplate)) {
-                    throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered connection endpoint template");
-                }
-                trust.setConnectionEndpointTemplate(discoveredTemplate);
-                trust.setAuthorizationServer(FedSetupUri.canonicalize(discovery.getAuthorizationServer()));
-                trust.setConfigurationResource(FedSetupUri.canonicalize(discovery.getConfigurationResource()));
-                if (FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())
-                        && !trust.getInstallationTrustEndpoint().equals(FedSetupUri.canonicalize(discovery.getInstallationTrustEndpoint()))) {
-                    throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered installation trust endpoint");
-                }
-                if (FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())
-                        && (!trust.getInstallationConsentEndpoint().equals(FedSetupUri.canonicalize(discovery.getInstallationConsentEndpoint()))
-                        || !trust.getInstallationConfirmationEndpoint().equals(FedSetupUri.canonicalize(discovery.getInstallationConfirmationEndpoint())))) {
-                    throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered front-channel consent and confirmation endpoints");
-                }
-                trust.setSamlSpInitiatedSloSupported(Boolean.TRUE.equals(discovery.getSamlSpInitiatedSloSupported()));
+            org.keycloak.fedsetup.representation.FedSetupDiscoveryRepresentation discovery =
+                    FedSetupApplicationDiscoveryService.discover(session, trust.getCanonicalApplicationBaseUri());
+            if (!trust.getConfigurationEndpoint().equals(FedSetupUri.canonicalize(discovery.getConfigurationEndpoint()))
+                    || !discovery.getDirectInstallationTrustProfilesSupported().contains(trust.getTrustProfileUri())) {
+                throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered Application configuration endpoint or profile support");
             }
+            String discoveredTemplate = FedSetupUri.canonicalizeConnectionEndpointTemplate(discovery.getConnectionEndpointTemplate());
+            if (trust.getConnectionEndpointTemplate() != null && !trust.getConnectionEndpointTemplate().equals(discoveredTemplate)) {
+                throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered connection endpoint template");
+            }
+            trust.setConnectionEndpointTemplate(discoveredTemplate);
+            trust.setAuthorizationServer(FedSetupUri.canonicalize(discovery.getAuthorizationServer()));
+            trust.setConfigurationResource(FedSetupUri.canonicalize(discovery.getConfigurationResource()));
+            if (FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())
+                    && !trust.getInstallationTrustEndpoint().equals(FedSetupUri.canonicalize(discovery.getInstallationTrustEndpoint()))) {
+                throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered installation trust endpoint");
+            }
+            if (FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())
+                    && Boolean.TRUE.equals(discovery.getInstallationTrustDeferredApprovalSupported())) {
+                if (blank(discovery.getInstallationTrustJwksUri())) {
+                    throw new FedSetupValidationException("Deferred-approval Application discovery omits installation_trust_jwks_uri");
+                }
+                trust.setInstallationTrustJwksUri(FedSetupUri.canonicalize(discovery.getInstallationTrustJwksUri()));
+            }
+            if (FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI.equals(trust.getTrustProfileUri())
+                    && (!trust.getInstallationConsentEndpoint().equals(FedSetupUri.canonicalize(discovery.getInstallationConsentEndpoint()))
+                    || !trust.getInstallationConfirmationEndpoint().equals(FedSetupUri.canonicalize(discovery.getInstallationConfirmationEndpoint())))) {
+                throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered front-channel consent and confirmation endpoints");
+            }
+            trust.setSamlSpInitiatedSloSupported(Boolean.TRUE.equals(discovery.getSamlSpInitiatedSloSupported()));
         }
         if (!outboundTrust) {
             FedSetupConfigurationProfile profile = store.getApplicationProfile();
@@ -677,11 +696,11 @@ public class FedSetupAdminResource {
             throw new FedSetupValidationException("Pre-authorization exceeds the Application integration profile");
         }
         long now = Time.currentTime();
-        if (entry.getExpiresAt() == 0) entry.setExpiresAt(now + FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS);
-        if (entry.getExpiresAt() <= now || entry.getExpiresAt() - now > FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS) {
-            throw new FedSetupValidationException("Trust pre-authorization expiry must be in the next five minutes");
+        if (entry.getExpiresAt() == 0) entry.setExpiresAt(now + FedSetupConstants.DEFAULT_PRE_AUTHORIZATION_LIFESPAN_SECONDS);
+        if (entry.getExpiresAt() <= now || entry.getExpiresAt() - now > FedSetupConstants.MAX_PRE_AUTHORIZATION_LIFESPAN_SECONDS) {
+            throw new FedSetupValidationException("Trust pre-authorization expiry exceeds the configured maximum lifetime");
         }
-        entry.setConsumed(false);
+        entry.setActive(true);
     }
 
     private void validateInstallation(FedSetupInstallation installation) {
@@ -751,74 +770,6 @@ public class FedSetupAdminResource {
         task.setResourceId(resourceId);
         task.setOperation("UPSERT");
         store.enqueueScimTask(task);
-    }
-
-    private Map<String, String> adoptedSso(IdentityProviderModel broker, DirectInstallationTrust trust) {
-        Map<String, String> config = broker.getConfig();
-        Map<String, String> result = new java.util.LinkedHashMap<>();
-        if ("oidc".equals(broker.getProviderId())) {
-            String issuer = config.get("issuer");
-            if (blank(issuer) || !trust.getIdpIssuer().equals(FedSetupUri.canonicalize(issuer))
-                    || !Objects.equals(trust.getRuntimeJwksUri(), config.get("jwksUrl"))) {
-                throw new FedSetupValidationException("OIDC broker issuer or JWKS URI does not match Direct Installation Trust");
-            }
-            copyIfPresent(config, result, "authorizationUrl", "authorization_endpoint");
-            copyIfPresent(config, result, "tokenUrl", "token_endpoint");
-            copyIfPresent(config, result, "userInfoUrl", "userinfo_endpoint");
-            copyIfPresent(config, result, "logoutUrl", "logout_endpoint");
-            copyIfPresent(config, result, "clientId", "client_id");
-            if (blank(result.get("authorization_endpoint")) || blank(result.get("token_endpoint")) || blank(result.get("client_id"))) {
-                throw new FedSetupValidationException("OIDC broker is missing required endpoint or client configuration");
-            }
-            result.put("issuer", trust.getIdpIssuer());
-        } else {
-            if (blank(trust.getRuntimeSigningCertificate())
-                    || !Objects.equals(trust.getRuntimeSigningCertificate(), config.get("signingCertificate"))) {
-                throw new FedSetupValidationException("SAML broker signing certificate does not match Direct Installation Trust");
-            }
-            copyIfPresent(config, result, "idpEntityId", "entity_id");
-            copyIfPresent(config, result, "singleSignOnServiceUrl", "single_sign_on_service");
-            copyIfPresent(config, result, "singleLogoutServiceUrl", "single_logout_service");
-            copyIfPresent(config, result, "nameIDPolicyFormat", "name_id_format");
-            if (blank(result.get("entity_id")) || blank(result.get("single_sign_on_service"))) {
-                throw new FedSetupValidationException("SAML broker is missing required entity or SSO configuration");
-            }
-        }
-        return result;
-    }
-
-    private void copyIfPresent(Map<String, String> source, Map<String, String> target, String sourceName, String targetName) {
-        String value = source.get(sourceName);
-        if (!blank(value)) target.put(targetName, value);
-    }
-
-    private void validatePinnedJwk(String rawJwk) {
-        try {
-            JWK jwk = JWKParser.create().parse(rawJwk).getJwk();
-            if (blank(jwk.getKeyId()) || blank(jwk.getAlgorithm()) || !Set.of("RS256", "RS384", "RS512", "ES256", "ES384", "ES512").contains(jwk.getAlgorithm())) {
-                throw new FedSetupValidationException("Pinned signing JWK requires kid and a supported asymmetric signing algorithm");
-            }
-            JWKParser.create(jwk).toPublicKey();
-        } catch (FedSetupValidationException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            throw new FedSetupValidationException("Invalid pinned signing JWK", e);
-        }
-    }
-
-    private void validateOutboundSigningKey(String rawJwk) {
-        try {
-            PublicKey configuredKey = JWKParser.create(JWKParser.create().parse(rawJwk).getJwk()).toPublicKey();
-            KeyWrapper activeKey = session.keys().getActiveKey(realm, KeyUse.SIG, Algorithm.RS256);
-            if (activeKey == null || !(activeKey.getPublicKey() instanceof PublicKey activePublicKey)
-                    || !MessageDigest.isEqual(configuredKey.getEncoded(), activePublicKey.getEncoded())) {
-                throw new FedSetupValidationException("Outbound Direct Installation Trust must pin this realm's active RS256 signing key");
-            }
-        } catch (FedSetupValidationException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            throw new FedSetupValidationException("Unable to validate the realm signing key", e);
-        }
     }
 
     private void validateClient(String clientId, String protocol) {
@@ -901,7 +852,6 @@ public class FedSetupAdminResource {
     private DirectInstallationTrust redact(DirectInstallationTrust source) {
         DirectInstallationTrust result = org.keycloak.util.JsonSerialization.valueFromString(
                 org.keycloak.util.JsonSerialization.valueAsString(source), DirectInstallationTrust.class);
-        result.setReceiverCredentialVaultReference(null);
         return result;
     }
 
@@ -932,6 +882,10 @@ public class FedSetupAdminResource {
 
     private String etag(long version) {
         return "\"" + version + "\"";
+    }
+
+    private boolean versionMatches(long currentVersion, String ifMatch, Long version) {
+        return etag(currentVersion).equals(ifMatch) || version != null && currentVersion == version;
     }
 
     private Response error(Response.Status status, String message) {

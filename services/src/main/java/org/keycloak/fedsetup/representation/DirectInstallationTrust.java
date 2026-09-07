@@ -25,13 +25,14 @@ public class DirectInstallationTrust {
     private String installationTrustEndpoint;
     private String installationConsentEndpoint;
     private String installationConfirmationEndpoint;
+    private String installationTrustJwksUri;
+    private String trustPreAuthorization;
+    private String deferredPendingId;
+    private String trustIdempotencyKey;
+    private boolean backChannelEstablished;
     private String idpIssuer;
     private String trustProfileUri;
     private String installationRuntimeCimdUri;
-    private String signingKeyJwk;
-    private String runtimeJwksUri;
-    private String runtimeSigningCertificate;
-    private String receiverCredentialVaultReference;
     private boolean samlSpInitiatedSloSupported;
     private Set<String> capabilities = new LinkedHashSet<>();
     private Set<String> providerDelegationProfiles = new LinkedHashSet<>();
@@ -62,20 +63,22 @@ public class DirectInstallationTrust {
     public void setInstallationConsentEndpoint(String value) { installationConsentEndpoint = value; }
     public String getInstallationConfirmationEndpoint() { return installationConfirmationEndpoint; }
     public void setInstallationConfirmationEndpoint(String value) { installationConfirmationEndpoint = value; }
+    public String getInstallationTrustJwksUri() { return installationTrustJwksUri; }
+    public void setInstallationTrustJwksUri(String value) { installationTrustJwksUri = value; }
+    public String getTrustPreAuthorization() { return trustPreAuthorization; }
+    public void setTrustPreAuthorization(String value) { trustPreAuthorization = value; }
+    public String getDeferredPendingId() { return deferredPendingId; }
+    public void setDeferredPendingId(String value) { deferredPendingId = value; }
+    public String getTrustIdempotencyKey() { return trustIdempotencyKey; }
+    public void setTrustIdempotencyKey(String value) { trustIdempotencyKey = value; }
+    public boolean isBackChannelEstablished() { return backChannelEstablished; }
+    public void setBackChannelEstablished(boolean value) { backChannelEstablished = value; }
     public String getIdpIssuer() { return idpIssuer; }
     public void setIdpIssuer(String idpIssuer) { this.idpIssuer = idpIssuer; }
     public String getTrustProfileUri() { return trustProfileUri; }
     public void setTrustProfileUri(String trustProfileUri) { this.trustProfileUri = trustProfileUri; }
     public String getInstallationRuntimeCimdUri() { return installationRuntimeCimdUri; }
     public void setInstallationRuntimeCimdUri(String installationRuntimeCimdUri) { this.installationRuntimeCimdUri = installationRuntimeCimdUri; }
-    public String getSigningKeyJwk() { return signingKeyJwk; }
-    public void setSigningKeyJwk(String signingKeyJwk) { this.signingKeyJwk = signingKeyJwk; }
-    public String getRuntimeJwksUri() { return runtimeJwksUri; }
-    public void setRuntimeJwksUri(String runtimeJwksUri) { this.runtimeJwksUri = runtimeJwksUri; }
-    public String getRuntimeSigningCertificate() { return runtimeSigningCertificate; }
-    public void setRuntimeSigningCertificate(String runtimeSigningCertificate) { this.runtimeSigningCertificate = runtimeSigningCertificate; }
-    public String getReceiverCredentialVaultReference() { return receiverCredentialVaultReference; }
-    public void setReceiverCredentialVaultReference(String receiverCredentialVaultReference) { this.receiverCredentialVaultReference = receiverCredentialVaultReference; }
     public boolean isSamlSpInitiatedSloSupported() { return samlSpInitiatedSloSupported; }
     public void setSamlSpInitiatedSloSupported(boolean value) { samlSpInitiatedSloSupported = value; }
     public Set<String> getCapabilities() { return capabilities; }

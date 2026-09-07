@@ -79,7 +79,7 @@ public final class FedSetupConfigurationCimdClientAuthenticator extends Abstract
     }
 
     @Override public String getId() { return PROVIDER_ID; }
-    @Override public boolean isSupported(Config.Scope config) { return Profile.isFeatureEnabled(Profile.Feature.FED_SETUP_CONFIGURATION); }
+    @Override public boolean isSupported(Config.Scope config) { return Profile.isFeatureEnabled(Profile.Feature.FEDSETUP_CONFIGURATION); }
     @Override public String getDisplayType() { return "FedSetup Configuration CIMD signed JWT"; }
     @Override public String getHelpText() { return "Configuration client assertion verified with an active Direct Installation Trust CIMD key source"; }
     @Override public boolean isConfigurable() { return false; }

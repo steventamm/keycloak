@@ -40,6 +40,7 @@ import org.keycloak.crypto.ClientSignatureVerifierProvider;
 import org.keycloak.crypto.ContentEncryptionProvider;
 import org.keycloak.crypto.CryptoUtils;
 import org.keycloak.crypto.SignatureProvider;
+import org.keycloak.fedsetup.FedSetupUrls;
 import org.keycloak.jose.jws.Algorithm;
 import org.keycloak.models.CibaConfig;
 import org.keycloak.models.ClientScopeModel;
@@ -117,6 +118,9 @@ public class OIDCWellKnownProvider implements WellKnownProvider {
 
         OIDCConfigurationRepresentation config = new OIDCConfigurationRepresentation();
         config.setIssuer(Urls.realmIssuer(frontendUriInfo.getBaseUri(), realm.getName()));
+        if (Profile.isFeatureEnabled(Profile.Feature.FEDSETUP_CONFIGURATION)) {
+            config.getOtherClaims().put("fedsetup_installation_cimd_uris", List.of(FedSetupUrls.cimd(frontendUriInfo, realm)));
+        }
         config.setAuthorizationEndpoint(frontendUriBuilder.clone().path(OIDCLoginProtocolService.class, "auth").build(realm.getName(), OIDCLoginProtocol.LOGIN_PROTOCOL).toString());
         config.setTokenEndpoint(backendUriBuilder.clone().path(OIDCLoginProtocolService.class, "token").build(realm.getName(), OIDCLoginProtocol.LOGIN_PROTOCOL).toString());
         config.setIntrospectionEndpoint(backendUriBuilder.clone().path(OIDCLoginProtocolService.class, "token").path(TokenEndpoint.class, "introspect").build(realm.getName(), OIDCLoginProtocol.LOGIN_PROTOCOL).toString());

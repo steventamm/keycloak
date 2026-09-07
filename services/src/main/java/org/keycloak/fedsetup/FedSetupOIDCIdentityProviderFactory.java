@@ -47,6 +47,6 @@ public final class FedSetupOIDCIdentityProviderFactory extends OIDCIdentityProvi
 
     @Override
     public boolean isSupported(Config.Scope config) {
-        return Profile.isFeatureEnabled(Profile.Feature.FED_SETUP_CONFIGURATION);
+        return Profile.isFeatureEnabled(Profile.Feature.FEDSETUP_CONFIGURATION);
     }
 }

@@ -11,7 +11,6 @@ import java.lang.reflect.Proxy;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -23,7 +22,6 @@ import org.keycloak.common.util.Time;
 import org.keycloak.crypto.Algorithm;
 import org.keycloak.crypto.KeyType;
 import org.keycloak.crypto.KeyWrapper;
-import org.keycloak.fedsetup.representation.DirectInstallationTrust;
 import org.keycloak.fedsetup.representation.FedSetupIdJagConfiguration;
 import org.keycloak.fedsetup.representation.FedSetupIdJagResourceBinding;
 import org.keycloak.fedsetup.representation.FedSetupInstallation;
@@ -31,15 +29,10 @@ import org.keycloak.fedsetup.representation.InstallationConfigurationRequest;
 import org.keycloak.fedsetup.representation.InstallationConfigurationResponse;
 import org.keycloak.jose.jwk.JWK;
 import org.keycloak.jose.jwk.JWKBuilder;
-import org.keycloak.jose.jws.JWSBuilder;
 import org.keycloak.models.ClientModel;
-import org.keycloak.models.KeycloakContext;
-import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
-import org.keycloak.models.SingleUseObjectProvider;
 import org.keycloak.representations.JsonWebToken;
 import org.keycloak.util.JsonSerialization;
-import org.keycloak.util.KeyWrapperUtil;
 
 import org.junit.jupiter.api.Test;
 
@@ -434,31 +427,6 @@ class FedSetupSecurityTest {
     }
 
     @Test
-    void rejectsExpiredReplayedAndMalformedInstallationAuthorizations() throws Exception {
-        KeyPair pair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
-        DirectInstallationTrust trust = installationAuthorizationTrust(pair);
-        KeycloakSession session = installationAuthorizationSession();
-        String body = "{\"connection\":\"test\"}";
-        String authorization = signedInstallationAuthorization(pair, "authorization-1", Time.currentTime(),
-                Time.currentTime() + 60, body);
-
-        InstallationAuthorizationValidator.validate(session, trust, "Bearer " + authorization, "POST",
-                "https://application.example/connections", body, "application-tenant", Set.of("scim"), Set.of());
-        assertThrows(FedSetupValidationException.class,
-                () -> InstallationAuthorizationValidator.validate(session, trust, "Bearer " + authorization, "POST",
-                        "https://application.example/connections", body, "application-tenant", Set.of("scim"), Set.of()));
-
-        String expired = signedInstallationAuthorization(pair, "authorization-expired", Time.currentTime() - 120,
-                Time.currentTime() - 60, body);
-        assertThrows(FedSetupValidationException.class,
-                () -> InstallationAuthorizationValidator.validate(session, trust, "Bearer " + expired, "POST",
-                        "https://application.example/connections", body, "application-tenant", Set.of("scim"), Set.of()));
-        assertThrows(FedSetupValidationException.class,
-                () -> InstallationAuthorizationValidator.validate(session, trust, "Bearer malformed", "POST",
-                        "https://application.example/connections", body, "application-tenant", Set.of("scim"), Set.of()));
-    }
-
-    @Test
     void derivesOutboundOidcScopesFromThePreCreatedClient() {
         ClientModel client = (ClientModel) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[] { ClientModel.class },
                 (proxy, method, arguments) -> switch (method.getName()) {
@@ -597,31 +565,6 @@ class FedSetupSecurityTest {
         return request;
     }
 
-    private static DirectInstallationTrust installationAuthorizationTrust(KeyPair pair) {
-        DirectInstallationTrust trust = new DirectInstallationTrust();
-        trust.setActive(true);
-        trust.setApplicationTenantId("application-tenant");
-        trust.setIdpIssuer("https://issuer.example");
-        trust.setCapabilities(Set.of("scim"));
-        trust.setSigningKeyJwk(JsonSerialization.valueAsString(JWKBuilder.create().kid("fedsetup-test-key")
-                .algorithm(Algorithm.RS256).rsa(pair.getPublic())));
-        return trust;
-    }
-
-    private static String signedInstallationAuthorization(KeyPair pair, String id, long issuedAt, long expiresAt, String body) {
-        KeyWrapper key = rsaKey(pair);
-        org.keycloak.representations.JsonWebToken token = new org.keycloak.representations.JsonWebToken()
-                .issuer("https://issuer.example").id(id).iat(issuedAt).exp(expiresAt);
-        token.setOtherClaims("application_tenant_id", "application-tenant");
-        token.setOtherClaims("method", "POST");
-        token.setOtherClaims("uri", "https://application.example/connections");
-        token.setOtherClaims("request_hash", InstallationAuthorizationValidator.sha256(body));
-        token.setOtherClaims("capabilities", List.of("scim"));
-        token.setOtherClaims("extension_profiles", List.of());
-        return new JWSBuilder().type("JWT").kid(key.getKid()).jsonContent(token)
-                .sign(KeyWrapperUtil.createSignatureSignerContext(key));
-    }
-
     private static KeyWrapper rsaKey(KeyPair pair) {
         KeyWrapper key = new KeyWrapper();
         key.setKid("fedsetup-test-key");
@@ -636,29 +579,4 @@ class FedSetupSecurityTest {
         return JWKBuilder.create().kid("fedsetup-test-key").algorithm(Algorithm.RS256).rsa(pair.getPublic());
     }
 
-    private static KeycloakSession installationAuthorizationSession() {
-        Set<String> consumed = new HashSet<>();
-        RealmModel realm = (RealmModel) Proxy.newProxyInstance(FedSetupSecurityTest.class.getClassLoader(),
-                new Class<?>[] { RealmModel.class }, (proxy, method, arguments) -> switch (method.getName()) {
-                    case "getId" -> "realm";
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
-        KeycloakContext context = (KeycloakContext) Proxy.newProxyInstance(FedSetupSecurityTest.class.getClassLoader(),
-                new Class<?>[] { KeycloakContext.class }, (proxy, method, arguments) -> switch (method.getName()) {
-                    case "getRealm" -> realm;
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
-        SingleUseObjectProvider singleUseObjects = (SingleUseObjectProvider) Proxy.newProxyInstance(
-                FedSetupSecurityTest.class.getClassLoader(), new Class<?>[] { SingleUseObjectProvider.class },
-                (proxy, method, arguments) -> switch (method.getName()) {
-                    case "putIfAbsent" -> consumed.add((String) arguments[0]);
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
-        return (KeycloakSession) Proxy.newProxyInstance(FedSetupSecurityTest.class.getClassLoader(),
-                new Class<?>[] { KeycloakSession.class }, (proxy, method, arguments) -> switch (method.getName()) {
-                    case "getContext" -> context;
-                    case "singleUseObjects" -> singleUseObjects;
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
-    }
 }

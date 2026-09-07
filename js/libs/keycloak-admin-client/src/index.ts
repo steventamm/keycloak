@@ -17,9 +17,11 @@ export type {
   FedSetupConfigurationProfile,
   FedSetupConnectionRepresentation,
   FedSetupInstallationRepresentation,
+  FedSetupPendingTrustAuthorizationRepresentation,
   FedSetupScimProvisioningTaskRepresentation,
   FedSetupRuntimeRepresentation,
   FedSetupTrustPreAuthorizationRepresentation,
+  FedSetupTrustPreAuthorizationResultRepresentation,
 } from "./defs/fedSetupRepresentation.js";
 export type {
   SsfAdminSubjectRequest,

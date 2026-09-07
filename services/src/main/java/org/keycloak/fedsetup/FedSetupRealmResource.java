@@ -44,6 +44,7 @@ import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.fedsetup.representation.FedSetupCredentialReference;
 import org.keycloak.fedsetup.representation.FedSetupFrontChannelTransaction;
+import org.keycloak.fedsetup.representation.FedSetupPendingTrustAuthorization;
 import org.keycloak.fedsetup.representation.InstallationConfigurationRequest;
 import org.keycloak.fedsetup.representation.InstallationConfigurationResponse;
 import org.keycloak.models.AdminRoles;
@@ -121,11 +122,39 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                                               String body) {
         try {
             requireNoBody(body, "Trust Establishment Request");
-            DirectInstallationTrust trust = BackChannelTrustService.establish(session, realm, store, authorization, idempotencyKey, requestUri());
+            BackChannelTrustService.Result result = BackChannelTrustService.establish(session, realm, store, authorization, idempotencyKey, requestUri());
+            if (result.pending() != null) {
+                FedSetupPendingTrustAuthorization pending = result.pending();
+                return Response.status(Response.Status.ACCEPTED).type(MediaType.APPLICATION_JSON).entity(Map.of(
+                        "pending_id", pending.getPendingId(),
+                        "interval", FedSetupConstants.PENDING_TRUST_POLL_INTERVAL_SECONDS,
+                        "expires_in", Math.max(0, pending.getExpiresAt() - Time.currentTime()))).build();
+            }
+            DirectInstallationTrust trust = result.trust();
             FedSetupAudit.success(session, realm, org.keycloak.events.admin.OperationType.CREATE,
                     "trust_established_back_channel", trust, null);
             return Response.status(Response.Status.CREATED).type(MediaType.APPLICATION_JSON)
                     .entity(trustConfirmation(trust)).build();
+        } catch (FedSetupRateLimitException e) {
+            return Response.status(Response.Status.TOO_MANY_REQUESTS).header("Retry-After", e.getRetryAfter()).build();
+        } catch (FedSetupValidationException e) {
+            return trustError(e);
+        }
+    }
+
+    /**
+     * Receives the optional deferred-approval doorbell.  The signed event is
+     * advisory only: after validation Keycloak sends the normal fresh runtime
+     * request to retrieve the authoritative result.
+     */
+    @POST
+    @Path("trust/notifications/{trustId}")
+    @Consumes("application/jwt")
+    public Response trustApprovalNotification(@PathParam("trustId") String trustId, String compact) {
+        try {
+            if (blank(compact)) throw new FedSetupValidationException("Trust Approval Notification is required");
+            OutboundTrustDispatcher.receiveApprovalNotification(session, realm, store, trustId, compact, requestUri());
+            return Response.noContent().build();
         } catch (FedSetupValidationException e) {
             return trustError(e);
         }
@@ -883,21 +912,10 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                 throw new FedSetupValidationException("OIDC issuer does not match Direct Installation Trust");
             }
             required(request.getSso(), "client_id");
-            if (trust.getInstallationRuntimeCimdUri() == null) {
-                required(request.getSso(), "authorization_endpoint");
-                required(request.getSso(), "token_endpoint");
-                validateIssuerBoundEndpoint(request.getSso(), "authorization_endpoint", trust.getIdpIssuer());
-                validateIssuerBoundEndpoint(request.getSso(), "token_endpoint", trust.getIdpIssuer());
-                validateIssuerBoundEndpoint(request.getSso(), "userinfo_endpoint", trust.getIdpIssuer());
-                validateIssuerBoundEndpoint(request.getSso(), "logout_endpoint", trust.getIdpIssuer());
-            } else {
-                // Runtime endpoints and signing keys come only from the issuer
-                // already bound into this trust, never from a push body.
-                FedSetupOidcMetadataResolver.resolve(session, trust.getIdpIssuer());
-            }
-            if (trust.getInstallationRuntimeCimdUri() == null && trust.getRuntimeJwksUri() == null) {
-                throw new FedSetupValidationException("Direct Installation Trust has no approved OIDC runtime JWKS URI");
-            }
+            // Runtime endpoints and signing keys come only from the issuer
+            // already bound into this CIMD Direct Installation Trust, never
+            // from a Configuration Request body.
+            FedSetupOidcMetadataResolver.resolve(session, trust.getIdpIssuer());
             String authenticationMethod = request.getSso().getOrDefault("client_auth_method", "client_secret_basic");
             if (!Set.of("client_secret_basic", "client_secret_post", "private_key_jwt", "none").contains(authenticationMethod)) {
                 throw new FedSetupValidationException("OIDC token_endpoint_auth_method is not supported");
@@ -934,18 +952,6 @@ public class FedSetupRealmResource implements RealmResourceProvider {
             } else if (saml != null && request.getSso().containsKey("single_logout_service")) {
                 throw new FedSetupValidationException("SAML Single Logout is not enabled by this Application realm policy");
             }
-            if (trust.getInstallationRuntimeCimdUri() == null && (trust.getRuntimeSigningCertificate() == null || trust.getRuntimeSigningCertificate().isBlank())) {
-                throw new FedSetupValidationException("Direct Installation Trust has no approved SAML signing certificate");
-            }
-            String suppliedCertificate = request.getSso().get("signing_certificate");
-            // A stored, issuer-bound metadata URL is an approved dynamic key
-            // source.  Without one, the original trust-pinned certificate
-            // remains the only permitted SAML signing key.
-            boolean usesTrustedMetadata = saml != null && !blank(saml.getIdpMetadataUrl());
-            if (trust.getInstallationRuntimeCimdUri() == null && !usesTrustedMetadata && suppliedCertificate != null
-                    && !trust.getRuntimeSigningCertificate().equals(suppliedCertificate)) {
-                throw new FedSetupValidationException("SAML signing certificate does not match Direct Installation Trust");
-            }
         }
     }
 
@@ -981,22 +987,16 @@ public class FedSetupRealmResource implements RealmResourceProvider {
     private Map<String, String> oidcBrokerConfig(FedSetupConnection connection, DirectInstallationTrust trust) {
         Map<String, String> config = new LinkedHashMap<>();
         Map<String, String> sso = connection.getSso();
-        FedSetupOidcMetadataResolver.RuntimeMetadata discovered = trust.getInstallationRuntimeCimdUri() == null ? null
-                : FedSetupOidcMetadataResolver.resolve(session, trust.getIdpIssuer());
+        FedSetupOidcMetadataResolver.RuntimeMetadata discovered = FedSetupOidcMetadataResolver.resolve(session, trust.getIdpIssuer());
         config.put("issuer", trust.getIdpIssuer());
-        config.put("authorizationUrl", discovered == null ? FedSetupUri.canonicalize(sso.get("authorization_endpoint")) : discovered.authorizationEndpoint());
-        config.put("tokenUrl", discovered == null ? FedSetupUri.canonicalize(sso.get("token_endpoint")) : discovered.tokenEndpoint());
+        config.put("authorizationUrl", discovered.authorizationEndpoint());
+        config.put("tokenUrl", discovered.tokenEndpoint());
         config.put("clientId", sso.get("client_id"));
-        config.put("jwksUrl", discovered == null ? trust.getRuntimeJwksUri() : discovered.jwksUri());
+        config.put("jwksUrl", discovered.jwksUri());
         config.put("useJwksUrl", "true");
         config.put("validateSignature", "true");
-        if (discovered == null) {
-            optionalUri(sso, "userinfo_endpoint", config, "userInfoUrl");
-            optionalUri(sso, "logout_endpoint", config, "logoutUrl");
-        } else {
-            if (discovered.userinfoEndpoint() != null) config.put("userInfoUrl", discovered.userinfoEndpoint());
-            if (discovered.logoutEndpoint() != null) config.put("logoutUrl", discovered.logoutEndpoint());
-        }
+        if (discovered.userinfoEndpoint() != null) config.put("userInfoUrl", discovered.userinfoEndpoint());
+        if (discovered.logoutEndpoint() != null) config.put("logoutUrl", discovered.logoutEndpoint());
         optional(sso, "default_scope", config, "defaultScope");
         optional(sso, "client_auth_method", config, "clientAuthMethod");
         if (connection.getCredentialReferenceId() != null) {
@@ -1017,8 +1017,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         Map<String, String> sso = connection.getSso();
         config.put("idpEntityId", sso.get("entity_id"));
         config.put("singleSignOnServiceUrl", FedSetupUri.canonicalize(sso.get("single_sign_on_service")));
-        config.put("signingCertificate", trust.getInstallationRuntimeCimdUri() == null ? trust.getRuntimeSigningCertificate()
-                : required(sso, "signing_certificate"));
+        config.put("signingCertificate", required(sso, "signing_certificate"));
         config.put("validateSignature", "true");
         optionalUri(sso, "single_logout_service", config, "singleLogoutServiceUrl");
         optional(sso, "name_id_format", config, "nameIDPolicyFormat");

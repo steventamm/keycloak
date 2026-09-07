@@ -49,8 +49,8 @@ import org.keycloak.fedsetup.representation.DirectInstallationTrust;
 import org.keycloak.fedsetup.representation.FedSetupConfigurationProfile;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
 import org.keycloak.fedsetup.representation.FedSetupInstallation;
+import org.keycloak.fedsetup.representation.FedSetupPendingTrustAuthorization;
 import org.keycloak.fedsetup.representation.FedSetupTrustPreAuthorization;
-import org.keycloak.fedsetup.representation.ManualConnectionAdoption;
 import org.keycloak.protocol.saml.SamlProtocol;
 import org.keycloak.representations.idm.IdentityProviderRepresentation;
 import org.keycloak.testframework.annotations.InjectAdminClient;
@@ -180,9 +180,10 @@ class FedSetupExpressConfigurationTest {
         preAuthorization.setCimdUri(cimdUri(idpRealm));
         preAuthorization.setCapabilities(Set.of("oidc"));
         preAuthorization.setFederationExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
-        assertEquals(201, post(applicationRealm.getName(), "trust-pre-authorizations", preAuthorization).status());
+        String trustPreAuthorization = createTrustPreAuthorization(preAuthorization);
 
         DirectInstallationTrust outboundTrust = outboundBackChannelTrust(applicationTenant);
+        outboundTrust.setTrustPreAuthorization(trustPreAuthorization);
         AdminResponse createdTrust = post(idpRealm.getName(), "trusts", outboundTrust);
         assertEquals(201, createdTrust.status());
         DirectInstallationTrust storedOutboundTrust = read(createdTrust.body(), DirectInstallationTrust.class);
@@ -240,6 +241,45 @@ class FedSetupExpressConfigurationTest {
         FedSetupInstallation updated = read(redispatched.body(), FedSetupInstallation.class);
         assertEquals(active.getRemoteConnectionId(), updated.getRemoteConnectionId());
         assertTrue(updated.getDispatchAttempts() > active.getDispatchAttempts());
+    }
+
+    @Test
+    void deferredBackChannelTrustWaitsForApplicationApprovalAndResumesWithPendingId() throws Exception {
+        String applicationTenant = APPLICATION_TENANT + "-deferred";
+        FedSetupConfigurationProfile profile = applicationProfile(applicationTenant);
+        assertEquals(200, put(applicationRealm.getName(), "application-profile", Map.of(
+                "applicationTenantId", profile.getApplicationTenantId(),
+                "canonicalBaseUri", profile.getCanonicalBaseUri(),
+                "oidcClientId", profile.getOidcClientId(),
+                "capabilities", profile.getCapabilities())).status());
+
+        DirectInstallationTrust outboundTrust = outboundBackChannelTrust(applicationTenant);
+        AdminResponse created = post(idpRealm.getName(), "trusts", outboundTrust);
+        assertEquals(201, created.status(), created.body());
+        DirectInstallationTrust stored = read(created.body(), DirectInstallationTrust.class);
+
+        AdminResponse proposed = post(idpRealm.getName(), "trusts/" + stored.getId() + "/establish", null);
+        assertEquals(200, proposed.status(), proposed.body());
+        assertEquals("PENDING_APPROVAL", read(proposed.body(), Map.class).get("status"));
+
+        List<FedSetupPendingTrustAuthorization> pending = getList(applicationRealm.getName(), "pending-trust-authorizations",
+                FedSetupPendingTrustAuthorization.class);
+        assertEquals(1, pending.size());
+        FedSetupPendingTrustAuthorization proposal = pending.get(0);
+        assertEquals(applicationTenant, proposal.getApplicationTenantId());
+        assertEquals("PENDING", proposal.getStatus());
+
+        AdminResponse approved = postWithIfMatch(applicationRealm.getName(),
+                "pending-trust-authorizations/" + proposal.getPendingId() + "/approve", proposal.getVersion());
+        assertEquals(200, approved.status(), approved.body());
+
+        // The optional notification can complete immediately. Repeating the
+        // ordinary request is also valid and proves that an established result
+        // remains idempotently available without a new proposal.
+        AdminResponse established = post(idpRealm.getName(), "trusts/" + stored.getId() + "/establish", null);
+        assertEquals(200, established.status(), established.body());
+        assertEquals("ESTABLISHED", read(established.body(), Map.class).get("status"));
+        assertNotNull(trustForTenant(getList(applicationRealm.getName(), "trusts", DirectInstallationTrust.class), applicationTenant));
     }
 
     @Test
@@ -318,9 +358,10 @@ class FedSetupExpressConfigurationTest {
         preAuthorization.setCapabilities(Set.of("oidc", "scim"));
         preAuthorization.setFederationExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI,
                 FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI));
-        assertEquals(201, post(applicationRealm.getName(), "trust-pre-authorizations", preAuthorization).status());
+        String trustPreAuthorization = createTrustPreAuthorization(preAuthorization);
 
         DirectInstallationTrust trust = outboundBackChannelTrust(applicationTenant);
+        trust.setTrustPreAuthorization(trustPreAuthorization);
         trust.setCapabilities(Set.of("oidc", "scim"));
         trust.setExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI, FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI));
         AdminResponse createdTrust = post(idpRealm.getName(), "trusts", trust);
@@ -398,9 +439,10 @@ class FedSetupExpressConfigurationTest {
         preAuthorization.setCimdUri(cimdUri(idpRealm));
         preAuthorization.setCapabilities(Set.of("saml"));
         preAuthorization.setFederationExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
-        assertEquals(201, post(applicationRealm.getName(), "trust-pre-authorizations", preAuthorization).status());
+        String trustPreAuthorization = createTrustPreAuthorization(preAuthorization);
 
         DirectInstallationTrust trust = outboundBackChannelTrust(applicationTenant);
+        trust.setTrustPreAuthorization(trustPreAuthorization);
         trust.setCapabilities(Set.of("saml"));
         AdminResponse createdTrust = post(idpRealm.getName(), "trusts", trust);
         assertEquals(201, createdTrust.status(), createdTrust.body());
@@ -442,71 +484,6 @@ class FedSetupExpressConfigurationTest {
         assertEquals(realmIssuer(idpRealm) + "/protocol/saml", refreshed.getSso().get("single_sign_on_service"));
         assertFalse(refreshed.getSso().get("signing_certificate").isBlank());
         assertFalse(refreshed.getSso().get("signing_certificate").contains("BEGIN CERTIFICATE"));
-    }
-
-    @Test
-    void applicationAdministratorCanAdoptOnlyAnExistingBrokerBoundToItsTrust() throws Exception {
-        String applicationTenant = APPLICATION_TENANT + "-manual-adoption";
-        FedSetupConfigurationProfile profile = applicationProfile(applicationTenant);
-        assertEquals(200, put(applicationRealm.getName(), "application-profile", Map.of(
-                "applicationTenantId", profile.getApplicationTenantId(),
-                "canonicalBaseUri", profile.getCanonicalBaseUri(),
-                "oidcClientId", profile.getOidcClientId(),
-                "capabilities", profile.getCapabilities())).status());
-
-        FedSetupTrustPreAuthorization preAuthorization = new FedSetupTrustPreAuthorization();
-        preAuthorization.setApplicationTenantId(applicationTenant);
-        preAuthorization.setIdpIssuer(realmIssuer(idpRealm));
-        preAuthorization.setCimdUri(cimdUri(idpRealm));
-        preAuthorization.setCapabilities(Set.of("oidc"));
-        preAuthorization.setFederationExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
-        assertEquals(201, post(applicationRealm.getName(), "trust-pre-authorizations", preAuthorization).status());
-
-        DirectInstallationTrust outboundTrust = outboundBackChannelTrust(applicationTenant);
-        AdminResponse createdTrust = post(idpRealm.getName(), "trusts", outboundTrust);
-        assertEquals(201, createdTrust.status(), createdTrust.body());
-        DirectInstallationTrust idpTrust = read(createdTrust.body(), DirectInstallationTrust.class);
-        assertEquals(200, post(idpRealm.getName(), "trusts/" + idpTrust.getId() + "/establish", null).status());
-        DirectInstallationTrust applicationTrust = trustForTenant(
-                getList(applicationRealm.getName(), "trusts", DirectInstallationTrust.class), applicationTenant);
-
-        String alias = "manual-fedsetup-broker";
-        Map<String, String> manualConfig = new LinkedHashMap<>();
-        manualConfig.put("issuer", realmIssuer(idpRealm));
-        manualConfig.put("authorizationUrl", realmIssuer(idpRealm) + "/protocol/openid-connect/auth");
-        manualConfig.put("tokenUrl", realmIssuer(idpRealm) + "/protocol/openid-connect/token");
-        manualConfig.put("clientId", "manually-registered-client");
-        if (applicationTrust.getRuntimeJwksUri() != null) {
-            manualConfig.put("jwksUrl", applicationTrust.getRuntimeJwksUri());
-        }
-        IdentityProviderRepresentation manualBroker = new IdentityProviderRepresentation();
-        manualBroker.setAlias(alias);
-        manualBroker.setProviderId("oidc");
-        manualBroker.setEnabled(true);
-        Map<String, String> mismatchedConfig = new LinkedHashMap<>(manualConfig);
-        mismatchedConfig.put("issuer", "https://untrusted.example/realm");
-        manualBroker.setConfig(mismatchedConfig);
-        try (Response response = applicationRealm.admin().identityProviders().create(manualBroker)) {
-            assertEquals(201, response.getStatus());
-        }
-
-        ManualConnectionAdoption adoption = new ManualConnectionAdoption();
-        adoption.setTrustId(applicationTrust.getId());
-        adoption.setBrokerAlias(alias);
-        assertEquals(400, post(applicationRealm.getName(), "connections/adopt", adoption).status());
-
-        manualBroker.setConfig(new LinkedHashMap<>(manualConfig));
-        applicationRealm.admin().identityProviders().get(alias).update(manualBroker);
-        AdminResponse adopted = post(applicationRealm.getName(), "connections/adopt", adoption);
-        assertEquals(201, adopted.status(), adopted.body());
-        FedSetupConnection connection = read(adopted.body(), FedSetupConnection.class);
-        assertEquals(alias, connection.getBrokerAlias());
-        assertEquals("oidc", connection.getProtocol());
-        assertEquals(Set.of(), connection.getCapabilities());
-        assertEquals(applicationTenant, connection.getApplicationTenantId());
-
-        IdentityProviderRepresentation persistedBroker = applicationRealm.admin().identityProviders().get(alias).toRepresentation();
-        assertEquals(manualConfig, persistedBroker.getConfig());
     }
 
     private FedSetupConfigurationProfile applicationProfile(String applicationTenant) {
@@ -563,6 +540,14 @@ class FedSetupExpressConfigurationTest {
         return resourceBase(realm) + "/cimd";
     }
 
+    private String createTrustPreAuthorization(FedSetupTrustPreAuthorization preAuthorization) throws Exception {
+        AdminResponse response = post(applicationRealm.getName(), "trust-pre-authorizations", preAuthorization);
+        assertEquals(201, response.status(), response.body());
+        Object value = read(response.body(), Map.class).get("trustPreAuthorization");
+        assertTrue(value instanceof String && !((String) value).isBlank());
+        return (String) value;
+    }
+
     private AdminResponse put(String realm, String path, Object value) throws Exception {
         try (Client client = client()) {
             try (Response response = target(client, realm, path).request().put(json(value))) {
@@ -574,6 +559,15 @@ class FedSetupExpressConfigurationTest {
     private AdminResponse post(String realm, String path, Object value) throws Exception {
         try (Client client = client()) {
             try (Response response = target(client, realm, path).request().post(value == null ? Entity.text("") : json(value))) {
+                return response(response);
+            }
+        }
+    }
+
+    private AdminResponse postWithIfMatch(String realm, String path, long version) throws Exception {
+        try (Client client = client()) {
+            try (Response response = target(client, realm, path).request()
+                    .header(FedSetupConstants.IF_MATCH_HEADER, "\"" + version + "\"").post(Entity.text(""))) {
                 return response(response);
             }
         }
@@ -704,7 +698,7 @@ class FedSetupExpressConfigurationTest {
     public static class FedSetupServerConfig implements KeycloakServerConfig {
         @Override
         public KeycloakServerConfigBuilder configure(KeycloakServerConfigBuilder config) {
-            return config.features(Profile.Feature.FED_SETUP_CONFIGURATION)
+            return config.features(Profile.Feature.FEDSETUP_CONFIGURATION)
                     .features(Profile.Feature.SCIM_API)
                     .option("hostname", PUBLIC_BASE)
                     // The proxy and trust-manager setting are test-process

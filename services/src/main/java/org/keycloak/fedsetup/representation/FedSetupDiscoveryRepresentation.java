@@ -36,6 +36,8 @@ public class FedSetupDiscoveryRepresentation {
     @JsonProperty("installation_trust_endpoint") private String installationTrustEndpoint;
     @JsonProperty("installation_consent_endpoint") private String installationConsentEndpoint;
     @JsonProperty("installation_confirmation_endpoint") private String installationConfirmationEndpoint;
+    @JsonProperty("installation_trust_jwks_uri") private String installationTrustJwksUri;
+    @JsonProperty("installation_trust_deferred_approval_supported") private Boolean installationTrustDeferredApprovalSupported;
 
     public String getFedsetupVersion() { return fedsetupVersion; }
     public void setFedsetupVersion(String value) { fedsetupVersion = value; }
@@ -77,4 +79,8 @@ public class FedSetupDiscoveryRepresentation {
     public void setInstallationConsentEndpoint(String value) { installationConsentEndpoint = value; }
     public String getInstallationConfirmationEndpoint() { return installationConfirmationEndpoint; }
     public void setInstallationConfirmationEndpoint(String value) { installationConfirmationEndpoint = value; }
+    public String getInstallationTrustJwksUri() { return installationTrustJwksUri; }
+    public void setInstallationTrustJwksUri(String value) { installationTrustJwksUri = value; }
+    public Boolean getInstallationTrustDeferredApprovalSupported() { return installationTrustDeferredApprovalSupported; }
+    public void setInstallationTrustDeferredApprovalSupported(Boolean value) { installationTrustDeferredApprovalSupported = value; }
 }

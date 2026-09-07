@@ -11,11 +11,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
 import jakarta.ws.rs.core.UriBuilder;
 
+import org.keycloak.TokenVerifier;
 import org.keycloak.common.util.Time;
 import org.keycloak.crypto.Algorithm;
 import org.keycloak.crypto.KeyUse;
@@ -25,7 +27,11 @@ import org.keycloak.fedsetup.representation.FedSetupFrontChannelTransaction;
 import org.keycloak.http.simple.SimpleHttp;
 import org.keycloak.http.simple.SimpleHttpRequest;
 import org.keycloak.http.simple.SimpleHttpResponse;
+import org.keycloak.jose.jwk.JSONWebKeySet;
+import org.keycloak.jose.jwk.JWK;
+import org.keycloak.jose.jwk.JWKParser;
 import org.keycloak.jose.jws.JWSBuilder;
+import org.keycloak.jose.jws.JWSInput;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.representations.JsonWebToken;
@@ -34,6 +40,7 @@ import org.keycloak.urls.UrlType;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.util.KeyWrapperUtil;
 
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 
@@ -46,16 +53,27 @@ public final class OutboundTrustDispatcher {
     public static DirectInstallationTrust establishBackChannel(KeycloakSession session, RealmModel realm, RealmFedSetupStore store,
                                                                DirectInstallationTrust trust) {
         validateLocalTrust(session, realm, trust, FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI);
+        if (trust.isBackChannelEstablished()) return trust;
         String endpoint = required(trust.getInstallationTrustEndpoint(), "installation_trust_endpoint");
+        if (trust.getTrustIdempotencyKey() == null) {
+            trust.setTrustIdempotencyKey(UUID.randomUUID().toString());
+        }
         String token = trustJwt(session, realm, trust, endpoint);
         // SimpleHttp requires an entity for POST.  A zero-length entity preserves the profile's no-body requirement.
         SimpleHttpRequest request = SimpleHttp.create(session).doPost(endpoint)
                 .header("Authorization", "Bearer " + token)
-                .header(FedSetupConstants.IDEMPOTENCY_HEADER, UUID.randomUUID().toString())
+                .header(FedSetupConstants.IDEMPOTENCY_HEADER, trust.getTrustIdempotencyKey())
                 .entity(new StringEntity("", ContentType.DEFAULT_TEXT));
         try (SimpleHttpResponse response = request.asResponse()) {
+            if (response.getStatus() == 202) {
+                PendingResponse pending = pending(response.asString());
+                trust.setDeferredPendingId(pending.pendingId());
+                return store.updateTrust(trust, trust.getVersion());
+            }
             if (response.getStatus() != 201) throw new FedSetupValidationException("Application trust endpoint returned HTTP " + response.getStatus());
             applyConfirmation(trust, confirmation(response.asString(), trust));
+            trust.setDeferredPendingId(null);
+            trust.setBackChannelEstablished(true);
             return store.updateTrust(trust, trust.getVersion());
         } catch (Exception e) {
             if (e instanceof FedSetupValidationException validation) throw validation;
@@ -135,6 +153,14 @@ public final class OutboundTrustDispatcher {
         token.setOtherClaims("authorized_capabilities", new ArrayList<>(trust.getCapabilities()));
         token.setOtherClaims("provider_delegation_profiles", new ArrayList<>(trust.getProviderDelegationProfiles()));
         token.setOtherClaims("federation_extension_profiles", new ArrayList<>(trust.getExtensionProfiles()));
+        if (trust.getTrustPreAuthorization() != null && !trust.getTrustPreAuthorization().isBlank()) {
+            token.setOtherClaims("trust_pre_authorization", trust.getTrustPreAuthorization());
+        } else if (trust.getDeferredPendingId() != null && !trust.getDeferredPendingId().isBlank()) {
+            token.setOtherClaims("pending_id", trust.getDeferredPendingId());
+        } else if (trust.getInstallationTrustJwksUri() != null && !trust.getInstallationTrustJwksUri().isBlank()) {
+            token.setOtherClaims("approval_notification_endpoint", FedSetupUrls.trustNotification(
+                    session.getContext().getUri(UrlType.FRONTEND), realm, trust.getId()));
+        }
         try {
             return new JWSBuilder().type("JWT").kid(key.getKid()).jsonContent(token).sign(KeyWrapperUtil.createSignatureSignerContext(key));
         } catch (Exception e) {
@@ -195,6 +221,87 @@ public final class OutboundTrustDispatcher {
         }
     }
 
+    /** Validates an advisory notification and returns the stored deferred proposal to resume. */
+    public static DirectInstallationTrust receiveApprovalNotification(KeycloakSession session, RealmModel realm, RealmFedSetupStore store,
+                                                                      String trustId, String compact, String endpoint) {
+        DirectInstallationTrust trust = store.requireTrust(trustId);
+        if (trust.getDeferredPendingId() == null || trust.getInstallationTrustJwksUri() == null) {
+            throw new FedSetupValidationException("No deferred Trust proposal is awaiting notification");
+        }
+        verifyApprovalNotification(session, trust, compact, endpoint);
+        return establishBackChannel(session, realm, store, trust);
+    }
+
+    private static void verifyApprovalNotification(KeycloakSession session, DirectInstallationTrust trust, String compact, String endpoint) {
+        try {
+            JWSInput input = new JWSInput(compact);
+            if (!FedSetupConstants.INSTALLATION_SIGNING_ALGORITHM.equals(input.getHeader().getAlgorithm().name())
+                    || input.getHeader().getKeyId() == null) {
+                throw new FedSetupValidationException("Trust Approval Notification key or algorithm is not trusted");
+            }
+            java.security.PublicKey key = applicationSigningKey(session, trust.getInstallationTrustJwksUri(), input.getHeader().getKeyId());
+            TokenVerifier<JsonWebToken> verifier = TokenVerifier.create(compact, JsonWebToken.class).publicKey(key)
+                    .withChecks(TokenVerifier.IS_ACTIVE, token -> Objects.equals(trust.getCanonicalApplicationBaseUri(), token.getIssuer())
+                            && token.hasAudience(endpoint));
+            verifier.verify();
+            JsonWebToken token = verifier.getToken();
+            if (!Objects.equals("trust-proposal-updated", token.getOtherClaims().get("event"))
+                    || !Objects.equals(trust.getDeferredPendingId(), stringClaim(token, "pending_id"))
+                    || !Objects.equals(trust.getApplicationTenantId(), stringClaim(token, "application_tenant_id"))
+                    || !Objects.equals(trust.getIdpIssuer(), stringClaim(token, "idp_issuer"))
+                    || !Objects.equals(trust.getInstallationRuntimeCimdUri(), stringClaim(token, "cimd_uri"))) {
+                throw new FedSetupValidationException("Trust Approval Notification does not match the deferred proposal");
+            }
+        } catch (FedSetupValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new FedSetupValidationException("Invalid Trust Approval Notification", e);
+        }
+    }
+
+    private static java.security.PublicKey applicationSigningKey(KeycloakSession session, String jwksUri, String kid) {
+        String uri = FedSetupUri.canonicalize(jwksUri);
+        FedSetupUri.requirePublicAddress(uri, "Application Trust signing-key source");
+        RequestConfig noRedirects = RequestConfig.copy(RequestConfig.DEFAULT).setRedirectsEnabled(false).build();
+        try (SimpleHttpResponse response = SimpleHttp.create(session).withRequestConfig(noRedirects).doGet(uri).acceptJson().asResponse()) {
+            if (response.getStatus() != 200) throw new FedSetupValidationException("Application Trust signing-key endpoint returned HTTP " + response.getStatus());
+            JSONWebKeySet keySet = JsonSerialization.readValue(response.asString(), JSONWebKeySet.class);
+            if (keySet == null || keySet.getKeys() == null) throw new FedSetupValidationException("Application Trust signing-key endpoint is empty");
+            for (JWK key : keySet.getKeys()) {
+                if (Objects.equals(kid, key.getKeyId()) && FedSetupConstants.INSTALLATION_SIGNING_ALGORITHM.equals(key.getAlgorithm())) {
+                    return JWKParser.create(key).toPublicKey();
+                }
+            }
+            throw new FedSetupValidationException("Application Trust signing key is not present");
+        } catch (FedSetupValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new FedSetupValidationException("Unable to retrieve Application Trust signing keys", e);
+        }
+    }
+
+    private static PendingResponse pending(String raw) {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = JsonSerialization.readValue(raw, Map.class);
+            Object id = response.get("pending_id");
+            if (!(id instanceof String pendingId) || pendingId.isBlank()) {
+                throw new FedSetupValidationException("Application returned an invalid deferred Trust response");
+            }
+            return new PendingResponse(pendingId);
+        } catch (FedSetupValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new FedSetupValidationException("Application returned an invalid deferred Trust response", e);
+        }
+    }
+
+    private static String stringClaim(JsonWebToken token, String name) {
+        Object value = token.getOtherClaims().get(name);
+        if (!(value instanceof String string) || string.isBlank()) throw new FedSetupValidationException("Trust Approval Notification is missing " + name);
+        return string;
+    }
+
     private static void applyConfirmation(DirectInstallationTrust trust, Confirmation confirmation) {
         trust.setCapabilities(confirmation.capabilities());
         trust.setProviderDelegationProfiles(confirmation.providerDelegationProfiles());
@@ -232,5 +339,8 @@ public final class OutboundTrustDispatcher {
 
     private record Confirmation(Set<String> capabilities, Set<String> providerDelegationProfiles,
                                 Set<String> federationExtensionProfiles) {
+    }
+
+    private record PendingResponse(String pendingId) {
     }
 }

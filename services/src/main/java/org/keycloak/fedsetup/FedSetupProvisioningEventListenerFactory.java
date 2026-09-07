@@ -23,5 +23,5 @@ public final class FedSetupProvisioningEventListenerFactory implements EventList
     @Override public void postInit(KeycloakSessionFactory factory) { }
     @Override public void close() { }
     @Override public String getId() { return "fedsetup-provisioning"; }
-    @Override public boolean isSupported(Config.Scope config) { return Profile.isFeatureEnabled(Profile.Feature.FED_SETUP_CONFIGURATION); }
+    @Override public boolean isSupported(Config.Scope config) { return Profile.isFeatureEnabled(Profile.Feature.FEDSETUP_CONFIGURATION); }
 }

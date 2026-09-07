@@ -7,15 +7,12 @@
  */
 package org.keycloak.fedsetup;
 
-import java.security.PublicKey;
 import java.util.UUID;
 
 import org.keycloak.OAuth2Constants;
-import org.keycloak.authentication.authenticators.client.JWTClientAuthenticator;
 import org.keycloak.common.constants.ServiceAccountConstants;
 import org.keycloak.fedsetup.representation.DirectInstallationTrust;
 import org.keycloak.fedsetup.representation.FedSetupConnection;
-import org.keycloak.jose.jwk.JWKParser;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.ClientSessionContext;
 import org.keycloak.models.Constants;
@@ -24,7 +21,6 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.RoleModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.UserSessionModel;
-import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.TokenManager;
 import org.keycloak.representations.AccessToken;
@@ -65,13 +61,8 @@ public final class FedSetupScimConnectionService {
             client.setImplicitFlowEnabled(false);
             client.setDirectAccessGrantsEnabled(false);
             client.setServiceAccountsEnabled(true);
-            boolean dynamicCimd = trust.getInstallationRuntimeCimdUri() != null && !trust.getInstallationRuntimeCimdUri().isBlank();
-            client.setClientAuthenticatorType(dynamicCimd ? FedSetupScimCimdClientAuthenticator.PROVIDER_ID : JWTClientAuthenticator.PROVIDER_ID);
+            client.setClientAuthenticatorType(FedSetupScimCimdClientAuthenticator.PROVIDER_ID);
             client.setAttribute(CONNECTION_ATTRIBUTE, connection.getId());
-            if (!dynamicCimd) {
-                PublicKey key = JWKParser.create(JWKParser.create().parse(trust.getSigningKeyJwk()).getJwk()).toPublicKey();
-                client.setAttribute(JWTClientAuthenticator.CERTIFICATE_ATTR, KeycloakModelUtils.getPemFromKey(key));
-            }
             new ClientManager(new RealmManager(session)).enableServiceAccount(client);
             removeLegacyRealmManagementRoles(session, realm, client);
             connection.setScimServiceClientId(clientId);

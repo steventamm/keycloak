@@ -51,5 +51,5 @@ public class FedSetupRealmResourceProviderFactory implements RealmResourceProvid
     }
     @Override public void close() { }
     @Override public String getId() { return FedSetupConstants.REALM_RESOURCE_ID; }
-    @Override public boolean isSupported(Config.Scope config) { return Profile.isFeatureEnabled(Profile.Feature.FED_SETUP_CONFIGURATION); }
+    @Override public boolean isSupported(Config.Scope config) { return Profile.isFeatureEnabled(Profile.Feature.FEDSETUP_CONFIGURATION); }
 }
