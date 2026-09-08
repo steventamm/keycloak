@@ -170,7 +170,7 @@ class FedSetupExpressConfigurationTest {
 
         Map<?, ?> discovery = getPublic("/.well-known/fedsetup/realms/" + applicationRealm.getName(), Map.class);
         assertEquals(profile.getCanonicalBaseUri(), discovery.get("application_base_uri"));
-        assertTrue(((List<?>) discovery.get("direct_installation_trust_profiles_supported"))
+        assertTrue(((List<?>) discovery.get("installation_trust_profiles_supported"))
                 .contains(FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI));
         assertPublicStatus("/realms/" + applicationRealm.getName() + "/.well-known/fedsetup", 404);
 
