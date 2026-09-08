@@ -25,6 +25,7 @@ export enum Feature {
   StepUpAuthenticationSaml = "STEP_UP_AUTHENTICATION_SAML",
   Ssf = "SSF",
   ScimApi = "SCIM_API",
+  IdentityAssertionJwt = "IDENTITY_ASSERTION_JWT",
   FedSetup = "FEDSETUP_CONFIGURATION",
   IdentityBrokeringAPIV1 = "IDENTITY_BROKERING_API_V1",
   IdentityBrokeringAPIV2 = "IDENTITY_BROKERING_API_V2",

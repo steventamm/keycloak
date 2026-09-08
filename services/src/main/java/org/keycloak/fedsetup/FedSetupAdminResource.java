@@ -54,7 +54,8 @@ import org.keycloak.urls.UrlType;
 /** Admin REST surface for realm-scoped FedSetup profiles, trusts, connections, and IdP installations. */
 public class FedSetupAdminResource {
 
-    private static final Set<String> SUPPORTED_CAPABILITIES = Set.of("oidc", "saml", "scim", "id_jag");
+    private static final Set<String> SUPPORTED_CAPABILITIES = Set.of(
+            "oidc", "saml", "scim", "id_jag", "layered_updates");
     private static final Set<String> SUPPORTED_SCIM_FEATURES = Set.of("PUSH_NEW_USERS", "PUSH_USER_DEACTIVATION", "REACTIVATE_USERS",
             "PUSH_PROFILE_UPDATES", "PUSH_GROUPS");
     /** Portable profile fields supported by the Express Configuration SAML mapping. */
@@ -548,7 +549,6 @@ public class FedSetupAdminResource {
         if (profile.isSamlSpInitiatedSloSupported() && blank(profile.getSamlClientId())) {
             throw new FedSetupValidationException("SP-initiated SAML SLO requires a pre-created SAML client");
         }
-        profile.getExtensionProfiles().add(FedSetupConstants.FEATURE_PROFILE_URI);
         if (profile.getCapabilities().contains("scim")) {
             profile.getExtensionProfiles().add(FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI);
         }
@@ -633,7 +633,7 @@ public class FedSetupAdminResource {
             org.keycloak.fedsetup.representation.FedSetupDiscoveryRepresentation discovery =
                     FedSetupApplicationDiscoveryService.discover(session, trust.getCanonicalApplicationBaseUri());
             if (!trust.getConfigurationEndpoint().equals(FedSetupUri.canonicalize(discovery.getConfigurationEndpoint()))
-                    || !discovery.getDirectInstallationTrustProfilesSupported().contains(trust.getTrustProfileUri())) {
+                    || !discovery.getInstallationTrustProfilesSupported().contains(trust.getTrustProfileUri())) {
                 throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered Application configuration endpoint or profile support");
             }
             String discoveredTemplate = FedSetupUri.canonicalizeConnectionEndpointTemplate(discovery.getConnectionEndpointTemplate());
@@ -659,7 +659,10 @@ public class FedSetupAdminResource {
                     || !trust.getInstallationConfirmationEndpoint().equals(FedSetupUri.canonicalize(discovery.getInstallationConfirmationEndpoint())))) {
                 throw new FedSetupValidationException("Outbound Direct Installation Trust does not match the discovered front-channel consent and confirmation endpoints");
             }
-            trust.setSamlSpInitiatedSloSupported(Boolean.TRUE.equals(discovery.getSamlSpInitiatedSloSupported()));
+            Object saml = discovery.getCapabilities().get("saml");
+            if (saml instanceof Map<?, ?> samlObject) {
+                trust.setSamlSpInitiatedSloSupported(Boolean.TRUE.equals(samlObject.get("sp_initiated_slo_supported")));
+            }
         }
         if (!outboundTrust) {
             FedSetupConfigurationProfile profile = store.getApplicationProfile();

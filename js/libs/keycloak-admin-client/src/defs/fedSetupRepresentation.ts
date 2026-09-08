@@ -5,6 +5,13 @@ export interface FedSetupConfigurationProfile {
   samlClientId?: string;
   capabilities?: string[];
   extensionProfiles?: string[];
+  idJagResourceBindings?: FedSetupIdJagResourceBinding[];
+}
+
+export interface FedSetupIdJagResourceBinding {
+  resource?: string;
+  client_id?: string;
+  scopes?: string[];
 }
 
 export interface DirectInstallationTrustRepresentation {

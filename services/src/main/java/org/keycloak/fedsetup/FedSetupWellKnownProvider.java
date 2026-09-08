@@ -48,25 +48,35 @@ public class FedSetupWellKnownProvider implements WellKnownProvider {
         result.setConfigurationEndpoint(endpoint + "/connections");
         result.setConfigurationResource(endpoint);
         result.setConnectionEndpointTemplate(endpoint + "/connections/{connection_id}");
-        java.util.List<String> protocols = new java.util.ArrayList<>();
-        if (profile.getOidcClientId() != null) protocols.add("oidc");
-        if (profile.getSamlClientId() != null) protocols.add("saml");
-        result.setProtocolsSupported(protocols);
-        result.setProvisioningSupported(profile.getCapabilities().contains("scim"));
+        java.util.Map<String, Object> capabilities = new java.util.LinkedHashMap<>();
+        if (profile.getOidcClientId() != null) capabilities.put("oidc", java.util.Map.of());
+        if (profile.getSamlClientId() != null) {
+            capabilities.put("saml", java.util.Map.of("sp_initiated_slo_supported", profile.isSamlSpInitiatedSloSupported()));
+        }
+        boolean scimSupported = profile.getCapabilities().contains("scim")
+                && Profile.isFeatureEnabled(Profile.Feature.SCIM_API)
+                && realm.isScimApiEnabled();
+        if (scimSupported) {
+            capabilities.put("scim", java.util.Map.of(
+                    "features_supported", java.util.List.of("PUSH_NEW_USERS", "PUSH_USER_DEACTIVATION", "REACTIVATE_USERS",
+                            "PUSH_PROFILE_UPDATES", "PUSH_GROUPS"),
+                    "auth_modes_supported", java.util.List.of("SAAS_ISSUED_BEARER")));
+        }
         boolean idJagSupported = profile.getCapabilities().contains("id_jag")
                 && Profile.isFeatureEnabled(Profile.Feature.IDENTITY_ASSERTION_JWT)
                 && !profile.getIdJagResourceBindings().isEmpty();
-        result.setIdJagSupported(idJagSupported);
         if (idJagSupported) {
-            result.setIdJagRequesterTypesSupported(java.util.List.of("app_instance", "workload_principal"));
+            capabilities.put("id_jag", java.util.Map.of(
+                    "requester_types_supported", java.util.List.of("app_instance", "workload_principal")));
         }
-        result.setSamlSpInitiatedSloSupported(profile.isSamlSpInitiatedSloSupported());
+        capabilities.put("layered_updates", java.util.Map.of());
+        result.setCapabilities(capabilities);
         result.setProviderDelegationProfilesSupported(java.util.List.of());
-        result.setFederationExtensionProfilesSupported(new java.util.ArrayList<>(profile.getExtensionProfiles()));
-        result.setLayeredUpdatesSupported(true);
+        result.setFederationExtensionProfilesSupported(scimSupported
+                ? new java.util.ArrayList<>(profile.getExtensionProfiles())
+                : java.util.List.of());
         result.setSsoConnectionCardinality("single");
-        result.setDocumentationUri(profile.getOidcDocumentationUri());
-        result.setDirectInstallationTrustProfilesSupported(java.util.List.of(
+        result.setInstallationTrustProfilesSupported(java.util.List.of(
                 FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI, FedSetupConstants.FRONT_CHANNEL_TRUST_PROFILE_URI));
         result.setInstallationTrustEndpoint(FedSetupUrls.trust(uriInfo, realm));
         result.setInstallationConsentEndpoint(FedSetupUrls.frontConsent(uriInfo, realm));

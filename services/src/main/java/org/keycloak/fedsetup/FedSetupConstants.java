@@ -10,7 +10,6 @@ package org.keycloak.fedsetup;
 /** Constants shared by the realm-scoped FedSetup resources. */
 public final class FedSetupConstants {
 
-    public static final String FEATURE_PROFILE_URI = "https://www.keycloak.org/fedsetup/direct-installation-trust/v1";
     public static final String SCIM_CREDENTIAL_PROFILE_URI = "https://www.keycloak.org/fedsetup/scim-credential/v1";
     public static final String BACK_CHANNEL_TRUST_PROFILE_URI = "urn:ietf:params:fedsetup:trust-profile:back-channel";
     public static final String FRONT_CHANNEL_TRUST_PROFILE_URI = "urn:ietf:params:fedsetup:trust-profile:front-channel";

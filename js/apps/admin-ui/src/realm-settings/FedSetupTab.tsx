@@ -19,6 +19,7 @@ import {
 import {
   AlertVariant,
   Button,
+  Checkbox,
   ClipboardCopy,
   Form,
   FormGroup,
@@ -34,6 +35,7 @@ import {
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAdminClient } from "../admin-client";
+import useIsFeatureEnabled, { Feature } from "../utils/useIsFeatureEnabled";
 
 const KEYCLOAK_SCIM_CREDENTIAL_PROFILE =
   "https://www.keycloak.org/fedsetup/scim-credential/v1";
@@ -44,6 +46,27 @@ const terms = (value: string) =>
     .map((term) => term.trim())
     .filter(Boolean);
 
+const CAPABILITY_OPTIONS = [
+  { value: "oidc", labelKey: "fedsetupCapabilityOidc" },
+  { value: "saml", labelKey: "fedsetupCapabilitySaml" },
+  { value: "scim", labelKey: "fedsetupCapabilityScim" },
+  { value: "id_jag", labelKey: "fedsetupCapabilityIdJag" },
+  { value: "layered_updates", labelKey: "fedsetupCapabilityLayeredUpdates" },
+] as const;
+
+const updateCapabilitySelection = (
+  current: string,
+  capability: string,
+  checked: boolean,
+) => {
+  const selected = new Set(terms(current));
+  if (checked) selected.add(capability);
+  else selected.delete(capability);
+  return CAPABILITY_OPTIONS.map(({ value }) => value)
+    .filter((value) => selected.has(value))
+    .join(", ");
+};
+
 type FedSetupState = {
   applicationProfile: FedSetupConfigurationProfile | null;
   trusts: DirectInstallationTrustRepresentation[];
@@ -53,13 +76,27 @@ type FedSetupState = {
   runtime: FedSetupRuntimeRepresentation;
   preAuthorizations: FedSetupTrustPreAuthorizationRepresentation[];
   pendingTrustAuthorizations: FedSetupPendingTrustAuthorizationRepresentation[];
+  scimApiEnabled: boolean;
 };
 
-const Status = ({ value }: { value?: string }) => (
-  <Label color={value === "ACTIVE" ? "green" : "orange"} isCompact>
-    {value || "UNKNOWN"}
-  </Label>
-);
+const Status = ({ value }: { value?: string }) => {
+  const { t } = useTranslation();
+  const label =
+    value === "ACTIVE"
+      ? t("fedsetupStatusActive")
+      : value === "DEACTIVATED"
+        ? t("fedsetupStatusDeactivated")
+        : value === "REVOKED"
+          ? t("fedsetupStatusRevoked")
+          : value === "PENDING"
+            ? t("fedsetupStatusPending")
+            : t("fedsetupStatusUnknown");
+  return (
+    <Label color={value === "ACTIVE" ? "green" : "orange"} isCompact>
+      {label}
+    </Label>
+  );
+};
 
 /**
  * Gives realm administrators a compact operational view of the preview
@@ -71,14 +108,14 @@ export const FedSetupTab = () => {
   const { realmName } = adminClient;
   const { addAlert, addError } = useAlerts();
   const { t } = useTranslation();
+  const isFeatureEnabled = useIsFeatureEnabled();
+  const scimApiFeatureEnabled = isFeatureEnabled(Feature.ScimApi);
+  const idJagFeatureEnabled = isFeatureEnabled(Feature.IdentityAssertionJwt);
   const [state, setState] = useState<FedSetupState>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [idpIssuer, setIdpIssuer] = useState("");
   const [cimdUri, setCimdUri] = useState("");
   const [capabilities, setCapabilities] = useState("scim");
-  const [extensionProfiles, setExtensionProfiles] = useState(
-    KEYCLOAK_SCIM_CREDENTIAL_PROFILE,
-  );
   const [issuedPreAuthorization, setIssuedPreAuthorization] = useState("");
   const [applicationTenantId, setApplicationTenantId] = useState("");
   const [canonicalBaseUri, setCanonicalBaseUri] = useState("");
@@ -89,6 +126,15 @@ export const FedSetupTab = () => {
 
   const hasApplicationProtocolClient =
     oidcClientId.trim().length > 0 || samlClientId.trim().length > 0;
+  const hasIdJagBindings =
+    (state?.applicationProfile?.idJagResourceBindings?.length ?? 0) > 0;
+  const canUseScim = scimApiFeatureEnabled && state?.scimApiEnabled === true;
+  const canUseIdJag = idJagFeatureEnabled && hasIdJagBindings;
+  const visibleCapabilityOptions = CAPABILITY_OPTIONS.filter(
+    (option) =>
+      (option.value !== "scim" || canUseScim) &&
+      (option.value !== "id_jag" || canUseIdJag),
+  );
 
   const refresh = () => setRefreshKey((value) => value + 1);
 
@@ -103,6 +149,7 @@ export const FedSetupTab = () => {
         runtime,
         preAuthorizations,
         pendingTrustAuthorizations,
+        realm,
       ] = await Promise.all([
         adminClient.fedSetup.getApplicationProfile(),
         adminClient.fedSetup.getTrusts(),
@@ -112,6 +159,7 @@ export const FedSetupTab = () => {
         adminClient.fedSetup.getRuntime(),
         adminClient.fedSetup.getTrustPreAuthorizations(),
         adminClient.fedSetup.getPendingTrustAuthorizations(),
+        adminClient.realms.findOne({ realm: realmName }),
       ]);
       return {
         applicationProfile,
@@ -122,6 +170,7 @@ export const FedSetupTab = () => {
         runtime,
         preAuthorizations,
         pendingTrustAuthorizations,
+        scimApiEnabled: realm?.scimApiEnabled === true,
       };
     },
     setState,
@@ -135,19 +184,46 @@ export const FedSetupTab = () => {
     setCanonicalBaseUri(profile?.canonicalBaseUri || state.runtime.idp_issuer);
     setOidcClientId(profile?.oidcClientId || "");
     setSamlClientId(profile?.samlClientId || "");
-    setApplicationCapabilities(profile?.capabilities?.join(", ") || "oidc");
-    setCapabilities(profile?.capabilities?.join(", ") || "oidc");
-    setExtensionProfiles(profile?.extensionProfiles?.join(", ") || "");
-  }, [state, realmName]);
+    const supported = new Set<string>(
+      CAPABILITY_OPTIONS.filter(
+        (option) =>
+          (option.value !== "scim" || canUseScim) &&
+          (option.value !== "id_jag" || canUseIdJag),
+      ).map(({ value }) => value),
+    );
+    const configured = profile?.capabilities || ["oidc"];
+    setApplicationCapabilities(
+      configured.filter((capability) => supported.has(capability)).join(", "),
+    );
+    setCapabilities(
+      configured.filter((capability) => supported.has(capability)).join(", "),
+    );
+  }, [state, realmName, canUseScim, canUseIdJag]);
 
   const saveApplicationProfile = async () => {
+    if (terms(applicationCapabilities).includes("scim") && !canUseScim) {
+      addAlert(
+        t("fedsetupScimNotEnabled"),
+        AlertVariant.danger,
+        t("fedsetupScimNotEnabledHelp"),
+      );
+      return;
+    }
+    if (terms(applicationCapabilities).includes("id_jag") && !canUseIdJag) {
+      addAlert(
+        t("fedsetupIdJagNotEnabled"),
+        AlertVariant.danger,
+        t("fedsetupIdJagNotEnabledHelp"),
+      );
+      return;
+    }
     if (!hasApplicationProtocolClient) {
       addAlert(
-        "FedSetup Application profile needs a client",
+        t("fedsetupProfileNeedsClient"),
         AlertVariant.danger,
         applicationCapabilities.includes("oidc")
-          ? "Create an OpenID Connect client under Clients, then enter its Client ID here. The Client ID is not the client UUID."
-          : "Create an OpenID Connect or SAML client under Clients, then enter its Client ID here. The Client ID is not the client UUID.",
+          ? t("fedsetupCreateOidcClient")
+          : t("fedsetupCreateOidcOrSamlClient"),
       );
       return;
     }
@@ -162,15 +238,15 @@ export const FedSetupTab = () => {
           capabilities: terms(applicationCapabilities),
         },
       );
-      addAlert("FedSetup Application profile saved", AlertVariant.success);
+      addAlert(t("fedsetupProfileSaved"), AlertVariant.success);
       refresh();
     } catch (error) {
       addAlert(
-        "FedSetup Application profile could not be saved",
+        t("fedsetupProfileSaveFailed"),
         AlertVariant.danger,
         getErrorDescription(error) ||
           getErrorMessage(error) ||
-          "Review the profile fields and try again.",
+          t("fedsetupReviewProfileFields"),
       );
     }
   };
@@ -179,10 +255,10 @@ export const FedSetupTab = () => {
     if (!installationId) return;
     try {
       await adminClient.fedSetup.dispatchInstallation({ installationId });
-      addAlert("FedSetup installation dispatched", AlertVariant.success);
+      addAlert(t("fedsetupInstallationDispatched"), AlertVariant.success);
       refresh();
     } catch (error) {
-      addError("FedSetup installation dispatch failed", error);
+      addError(t("fedsetupInstallationDispatchFailed"), error);
     }
   };
 
@@ -193,12 +269,12 @@ export const FedSetupTab = () => {
         installationId,
       });
       addAlert(
-        `Queued ${result.users} users and ${result.groups} groups for SCIM reconciliation`,
+        t("fedsetupScimReconciliationQueued", result),
         AlertVariant.success,
       );
       refresh();
     } catch (error) {
-      addError("SCIM reconciliation could not be queued", error);
+      addError(t("fedsetupScimReconciliationFailed"), error);
     }
   };
 
@@ -206,8 +282,8 @@ export const FedSetupTab = () => {
     const applicationTenantId = state?.applicationProfile?.applicationTenantId;
     if (!applicationTenantId) {
       addError(
-        "Configure an Application integration profile before pre-authorizing trust",
-        new Error("Application Tenant identifier is unavailable"),
+        t("fedsetupProfileRequired"),
+        new Error(t("fedsetupTenantUnavailable")),
       );
       return;
     }
@@ -218,19 +294,15 @@ export const FedSetupTab = () => {
         cimdUri,
         capabilities: terms(capabilities),
         providerDelegationProfiles: [],
-        federationExtensionProfiles: terms(extensionProfiles),
+        federationExtensionProfiles: terms(capabilities).includes("scim")
+          ? [KEYCLOAK_SCIM_CREDENTIAL_PROFILE]
+          : [],
       });
       setIssuedPreAuthorization(result.trustPreAuthorization);
-      addAlert(
-        "Back-channel Direct Installation Trust pre-authorization created",
-        AlertVariant.success,
-      );
+      addAlert(t("fedsetupPreauthorizationCreated"), AlertVariant.success);
       refresh();
     } catch (error) {
-      addError(
-        "Direct Installation Trust pre-authorization could not be created",
-        error,
-      );
+      addError(t("fedsetupPreauthorizationFailed"), error);
     }
   };
 
@@ -243,16 +315,10 @@ export const FedSetupTab = () => {
         pendingId: pending.pendingId,
         version: pending.version,
       });
-      addAlert(
-        "Deferred Direct Installation Trust approved",
-        AlertVariant.success,
-      );
+      addAlert(t("fedsetupDeferredApproved"), AlertVariant.success);
       refresh();
     } catch (error) {
-      addError(
-        "Deferred Direct Installation Trust could not be approved",
-        error,
-      );
+      addError(t("fedsetupDeferredApprovalFailed"), error);
     }
   };
 
@@ -265,10 +331,10 @@ export const FedSetupTab = () => {
         preAuthorizationId: preAuthorization.id,
         version: preAuthorization.version,
       });
-      addAlert("Trust Pre-Authorization cancelled", AlertVariant.success);
+      addAlert(t("fedsetupPreauthorizationCancelled"), AlertVariant.success);
       refresh();
     } catch (error) {
-      addError("Trust Pre-Authorization could not be cancelled", error);
+      addError(t("fedsetupPreauthorizationCancelFailed"), error);
     }
   };
 
@@ -281,13 +347,10 @@ export const FedSetupTab = () => {
         pendingId: pending.pendingId,
         version: pending.version,
       });
-      addAlert(
-        "Deferred Direct Installation Trust denied",
-        AlertVariant.success,
-      );
+      addAlert(t("fedsetupDeferredDenied"), AlertVariant.success);
       refresh();
     } catch (error) {
-      addError("Deferred Direct Installation Trust could not be denied", error);
+      addError(t("fedsetupDeferredDenialFailed"), error);
     }
   };
 
@@ -314,21 +377,21 @@ export const FedSetupTab = () => {
 
         <StackItem>
           <Title headingLevel="h2">
-            FedSetup Application profile{" "}
+            {t("fedsetupApplicationProfile")}{" "}
             <HelpItem
               fieldLabelId="fedsetup-application-profile"
-              helpText="This realm represents one Application tenant. Before saving, create at least one OpenID Connect or SAML client under Clients and enter its Client ID below, not its internal UUID. Choose only the connection types that this Application supports."
+              helpText={t("fedsetupApplicationProfileHelp")}
             />
           </Title>
           <Form isHorizontal className="pf-v5-u-mt-md">
             <FormGroup
-              label="Application tenant ID"
+              label={t("fedsetupApplicationTenantId")}
               fieldId="fedsetup-application-tenant-id"
               isRequired
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-application-tenant-id"
-                  helpText={`A stable, opaque identifier sent by the IdP as application_tenant_id. For a single-realm deployment, the realm name (${realmName}) is the recommended value. Do not use a host name or IdP issuer.`}
+                  helpText={t("fedsetupApplicationTenantIdHelp", { realmName })}
                 />
               }
             >
@@ -340,13 +403,13 @@ export const FedSetupTab = () => {
               />
             </FormGroup>
             <FormGroup
-              label="Canonical base URI"
+              label={t("fedsetupCanonicalBaseUri")}
               fieldId="fedsetup-canonical-base-uri"
               isRequired
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-canonical-base-uri"
-                  helpText="Keycloak derives this from the externally visible realm issuer. The FedSetup specification requires exact URI matching, so it cannot be changed here."
+                  helpText={t("fedsetupCanonicalBaseUriHelp")}
                 />
               }
             >
@@ -359,12 +422,12 @@ export const FedSetupTab = () => {
               />
             </FormGroup>
             <FormGroup
-              label="OIDC client ID"
+              label={t("fedsetupOidcClientId")}
               fieldId="fedsetup-oidc-client-id"
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-oidc-client-id"
-                  helpText="Required when this profile supports only OIDC. Enter the Client ID of an existing OpenID Connect client in this realm; do not enter its internal UUID."
+                  helpText={t("fedsetupOidcClientIdHelp")}
                 />
               }
             >
@@ -375,12 +438,12 @@ export const FedSetupTab = () => {
               />
             </FormGroup>
             <FormGroup
-              label="SAML client ID"
+              label={t("fedsetupSamlClientId")}
               fieldId="fedsetup-saml-client-id"
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-saml-client-id"
-                  helpText="Required when this profile supports only SAML. Enter the Client ID of an existing SAML client in this realm; do not enter its internal UUID."
+                  helpText={t("fedsetupSamlClientIdHelp")}
                 />
               }
             >
@@ -391,22 +454,31 @@ export const FedSetupTab = () => {
               />
             </FormGroup>
             <FormGroup
-              label="Capabilities"
+              label={t("fedsetupCapabilities")}
               fieldId="fedsetup-application-capabilities"
               isRequired
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-application-capabilities"
-                  helpText="Comma-separated capability identifiers. This implementation supports oidc, saml, and scim. Choose only capabilities the Application is prepared to configure for this tenant."
+                  helpText={t("fedsetupApplicationCapabilitiesHelp")}
                 />
               }
             >
-              <TextInput
-                id="fedsetup-application-capabilities"
-                value={applicationCapabilities}
-                onChange={(_event, value) => setApplicationCapabilities(value)}
-                isRequired
-              />
+              {visibleCapabilityOptions.map((option) => (
+                <Checkbox
+                  key={option.value}
+                  id={`fedsetup-application-capability-${option.value}`}
+                  label={t(option.labelKey)}
+                  isChecked={terms(applicationCapabilities).includes(
+                    option.value,
+                  )}
+                  onChange={(_event, checked) =>
+                    setApplicationCapabilities((current) =>
+                      updateCapabilitySelection(current, option.value, checked),
+                    )
+                  }
+                />
+              ))}
             </FormGroup>
             <FormGroup fieldId="fedsetup-save-application-profile">
               <Button
@@ -415,8 +487,8 @@ export const FedSetupTab = () => {
                 onClick={saveApplicationProfile}
               >
                 {applicationProfile
-                  ? "Save Application profile"
-                  : "Create Application profile"}
+                  ? t("fedsetupSaveApplicationProfile")
+                  : t("fedsetupCreateApplicationProfile")}
               </Button>
             </FormGroup>
           </Form>
@@ -424,14 +496,14 @@ export const FedSetupTab = () => {
 
         <StackItem>
           <Title headingLevel="h2">
-            Direct Installation Trusts{" "}
+            {t("fedsetupDirectInstallationTrusts")}{" "}
             <HelpItem
               fieldLabelId="fedsetup-direct-installation-trusts"
-              helpText="Each trust is an active, administrator-approved binding between this Application tenant and one IdP issuer. It is created by a completed front-channel or back-channel trust flow; this page does not create trusts directly."
+              helpText={t("fedsetupDirectInstallationTrustsHelp")}
             />
           </Title>
           {trusts.length === 0 ? (
-            <Text>No Direct Installation Trusts are configured.</Text>
+            <Text>{t("fedsetupNoTrusts")}</Text>
           ) : (
             <ul>
               {trusts.map((trust) => (
@@ -447,21 +519,24 @@ export const FedSetupTab = () => {
 
         <StackItem>
           <Title headingLevel="h2">
-            Back-channel Direct Installation Trust{" "}
+            {t("fedsetupBackChannelTrust")}{" "}
             <HelpItem
               fieldLabelId="fedsetup-back-channel-trust"
-              helpText={`Use this when the Application administrator starts SSO setup and hands an IdP administrator a ticket. This form creates a signed Trust Pre-Authorization JWS, not a trust by itself. Copy the IdP issuer and CIMD URI from the IdP's FedSetup setup screen or documentation; do not use this Application's issuer (${runtime.idp_issuer}) or CIMD URI (${runtime.cimd_uri}). Creating another authorization for the same tenant, issuer, and CIMD URI replaces the earlier one. Cancel revokes it before the IdP can use it.`}
+              helpText={t("fedsetupBackChannelTrustHelp", {
+                issuer: runtime.idp_issuer,
+                cimdUri: runtime.cimd_uri,
+              })}
             />
           </Title>
           <Form isHorizontal className="pf-v5-u-mt-md">
             <FormGroup
-              label="IdP issuer"
+              label={t("fedsetupIdpIssuer")}
               fieldId="fedsetup-idp-issuer"
               isRequired
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-idp-issuer"
-                  helpText="The exact issuer URI of the remote IdP tenant, such as https://login.example.com. It must match the issuer in the IdP's signed runtime request."
+                  helpText={t("fedsetupIdpIssuerHelp")}
                 />
               }
             >
@@ -473,13 +548,13 @@ export const FedSetupTab = () => {
               />
             </FormGroup>
             <FormGroup
-              label="IdP CIMD URI"
+              label={t("fedsetupIdpCimdUri")}
               fieldId="fedsetup-cimd-uri"
               isRequired
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-cimd-uri"
-                  helpText="The HTTPS Client ID Metadata Document URI for the remote IdP installation runtime. Keycloak uses its declared signing keys to verify the IdP's trust request."
+                  helpText={t("fedsetupIdpCimdUriHelp")}
                 />
               }
             >
@@ -491,38 +566,37 @@ export const FedSetupTab = () => {
               />
             </FormGroup>
             <FormGroup
-              label="Capabilities"
+              label={t("fedsetupCapabilities")}
               fieldId="fedsetup-capabilities"
               isRequired
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-capabilities"
-                  helpText="Comma-separated capabilities to permit for this trust. They must be a subset of the Application profile above. For the default profile, leave this as oidc. Add scim only when you intend to provision users with SCIM."
+                  helpText={t("fedsetupTrustCapabilitiesHelp")}
                 />
               }
             >
-              <TextInput
-                id="fedsetup-capabilities"
-                value={capabilities}
-                onChange={(_event, value) => setCapabilities(value)}
-                isRequired
-              />
-            </FormGroup>
-            <FormGroup
-              label="Extension profiles"
-              fieldId="fedsetup-profiles"
-              labelIcon={
-                <HelpItem
-                  fieldLabelId="fedsetup-profiles"
-                  helpText="Comma-separated FedSetup extension-profile URIs. Keep the Keycloak SCIM credential profile when requesting scim; leave this empty when no extension profile is needed."
-                />
-              }
-            >
-              <TextInput
-                id="fedsetup-profiles"
-                value={extensionProfiles}
-                onChange={(_event, value) => setExtensionProfiles(value)}
-              />
+              {visibleCapabilityOptions
+                .filter((option) =>
+                  terms(applicationCapabilities).includes(option.value),
+                )
+                .map((option) => (
+                  <Checkbox
+                    key={option.value}
+                    id={`fedsetup-trust-capability-${option.value}`}
+                    label={t(option.labelKey)}
+                    isChecked={terms(capabilities).includes(option.value)}
+                    onChange={(_event, checked) =>
+                      setCapabilities((current) =>
+                        updateCapabilitySelection(
+                          current,
+                          option.value,
+                          checked,
+                        ),
+                      )
+                    }
+                  />
+                ))}
             </FormGroup>
             <FormGroup fieldId="fedsetup-create-pre-authorization">
               <Button
@@ -530,7 +604,7 @@ export const FedSetupTab = () => {
                 variant="primary"
                 onClick={createPreAuthorization}
               >
-                Pre-authorize back-channel trust
+                {t("fedsetupPreauthorizeBackchannel")}
               </Button>
             </FormGroup>
           </Form>
@@ -555,12 +629,12 @@ export const FedSetupTab = () => {
           )}
           {issuedPreAuthorization && (
             <FormGroup
-              label="Signed Trust Pre-Authorization"
+              label={t("fedsetupSignedTrustPreAuthorization")}
               fieldId="fedsetup-trust-pre-authorization"
               labelIcon={
                 <HelpItem
                   fieldLabelId="fedsetup-trust-pre-authorization"
-                  helpText="Send this JWS to the IdP administrator through the onboarding ticket. Treat it as a bearer artifact: anyone who can present it from the named IdP runtime can establish the approved trust."
+                  helpText={t("fedsetupSignedTrustPreAuthorizationHelp")}
                 />
               }
             >
@@ -577,16 +651,14 @@ export const FedSetupTab = () => {
 
         <StackItem>
           <Title headingLevel="h2">
-            Pending Direct Installation Trust authorizations{" "}
+            {t("fedsetupPendingTrustAuthorizations")}{" "}
             <HelpItem
               fieldLabelId="fedsetup-pending-trust-authorizations"
-              helpText="These are IdP-initiated deferred proposals. Approve only after confirming that the listed issuer, CIMD runtime, and requested capabilities are the SSO setup you expect. Approval allows the IdP to finish the proposal; it does not create a trust until the IdP submits the approved pending_id with its original Idempotency-Key and a fresh runtime JWT."
+              helpText={t("fedsetupPendingTrustAuthorizationsHelp")}
             />
           </Title>
           {pendingTrustAuthorizations.length === 0 ? (
-            <Text>
-              No deferred Direct Installation Trust proposals are pending.
-            </Text>
+            <Text>{t("fedsetupNoPendingTrusts")}</Text>
           ) : (
             <ul>
               {pendingTrustAuthorizations.map((pending) => (
@@ -594,8 +666,10 @@ export const FedSetupTab = () => {
                   <strong>{pending.applicationTenantId}</strong> —{" "}
                   {pending.idpIssuer} <Status value={pending.status} />
                   <Text component={TextVariants.small}>
-                    Runtime: {pending.cimdUri}; capabilities:{" "}
-                    {pending.capabilities?.join(", ") || "none"}
+                    {t("fedsetupRuntimeCapabilities", {
+                      cimdUri: pending.cimdUri,
+                      capabilities: pending.capabilities?.join(", ") || "none",
+                    })}
                   </Text>
                   {pending.status === "PENDING" && (
                     <>
@@ -604,14 +678,14 @@ export const FedSetupTab = () => {
                         isInline
                         onClick={() => approvePending(pending)}
                       >
-                        Approve
+                        {t("fedsetupApprove")}
                       </Button>
                       <Button
                         variant="link"
                         isInline
                         onClick={() => denyPending(pending)}
                       >
-                        Deny
+                        {t("fedsetupDeny")}
                       </Button>
                     </>
                   )}
@@ -623,14 +697,14 @@ export const FedSetupTab = () => {
 
         <StackItem>
           <Title headingLevel="h2">
-            Inbound Connections{" "}
+            {t("fedsetupInboundConnections")}{" "}
             <HelpItem
               fieldLabelId="fedsetup-inbound-connections"
-              helpText="These are the local Keycloak broker connections created for completed inbound federation setup. Manage their lifecycle through the FedSetup trust flow rather than editing the broker configuration independently."
+              helpText={t("fedsetupInboundConnectionsHelp")}
             />
           </Title>
           {connections.length === 0 ? (
-            <Text>No FedSetup Connections are configured.</Text>
+            <Text>{t("fedsetupNoConnections")}</Text>
           ) : (
             <ul>
               {connections.map((connection) => (
@@ -645,14 +719,14 @@ export const FedSetupTab = () => {
 
         <StackItem>
           <Title headingLevel="h2">
-            Outbound Installations{" "}
+            {t("fedsetupOutboundInstallations")}{" "}
             <HelpItem
               fieldLabelId="fedsetup-outbound-installations"
-              helpText="These are configuration requests this realm sends to a remote Application after it acts as the IdP. Dispatch retries delivery; it does not grant new authority. Reconcile SCIM queues the current realm users and groups for an already active SCIM-enabled Installation."
+              helpText={t("fedsetupOutboundInstallationsHelp")}
             />
           </Title>
           {installations.length === 0 ? (
-            <Text>No outbound FedSetup Installations are configured.</Text>
+            <Text>{t("fedsetupNoInstallations")}</Text>
           ) : (
             <ul>
               {installations.map((installation) => (
@@ -665,7 +739,7 @@ export const FedSetupTab = () => {
                       isInline
                       onClick={() => dispatch(installation.id)}
                     >
-                      Dispatch
+                      {t("fedsetupDispatch")}
                     </Button>
                   )}
                   {installation.status === "ACTIVE" &&
@@ -675,7 +749,7 @@ export const FedSetupTab = () => {
                         isInline
                         onClick={() => reconcileScim(installation.id)}
                       >
-                        Reconcile SCIM
+                        {t("fedsetupReconcileScim")}
                       </Button>
                     )}
                   {installation.lastError && (
@@ -691,14 +765,14 @@ export const FedSetupTab = () => {
 
         <StackItem>
           <Title headingLevel="h2">
-            Outbound SCIM provisioning{" "}
+            {t("fedsetupOutboundScimProvisioning")}{" "}
             <HelpItem
               fieldLabelId="fedsetup-outbound-scim-provisioning"
-              helpText="This is the delivery queue for SCIM work created by active Installations. A task's error describes the last remote delivery attempt; it does not revoke the associated Direct Installation Trust."
+              helpText={t("fedsetupOutboundScimProvisioningHelp")}
             />
           </Title>
           {scimTasks.length === 0 ? (
-            <Text>No SCIM provisioning tasks are queued.</Text>
+            <Text>{t("fedsetupNoScimTasks")}</Text>
           ) : (
             <ul>
               {scimTasks.map((task) => (

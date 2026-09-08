@@ -179,7 +179,7 @@ class FedSetupExpressConfigurationTest {
         preAuthorization.setIdpIssuer(realmIssuer(idpRealm));
         preAuthorization.setCimdUri(cimdUri(idpRealm));
         preAuthorization.setCapabilities(Set.of("oidc"));
-        preAuthorization.setFederationExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
+        preAuthorization.setFederationExtensionProfiles(Set.of());
         String trustPreAuthorization = createTrustPreAuthorization(preAuthorization);
 
         DirectInstallationTrust outboundTrust = outboundBackChannelTrust(applicationTenant);
@@ -205,7 +205,7 @@ class FedSetupExpressConfigurationTest {
         installation.setClientId(IDP_CLIENT);
         installation.setProtocol("oidc");
         installation.setCapabilities(Set.of("oidc"));
-        installation.setExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
+        installation.setExtensionProfiles(Set.of());
 
         AdminResponse createdInstallation = post(idpRealm.getName(), "installations", installation);
         assertEquals(201, createdInstallation.status());
@@ -356,14 +356,13 @@ class FedSetupExpressConfigurationTest {
         preAuthorization.setIdpIssuer(realmIssuer(idpRealm));
         preAuthorization.setCimdUri(cimdUri(idpRealm));
         preAuthorization.setCapabilities(Set.of("oidc", "scim"));
-        preAuthorization.setFederationExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI,
-                FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI));
+        preAuthorization.setFederationExtensionProfiles(Set.of(FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI));
         String trustPreAuthorization = createTrustPreAuthorization(preAuthorization);
 
         DirectInstallationTrust trust = outboundBackChannelTrust(applicationTenant);
         trust.setTrustPreAuthorization(trustPreAuthorization);
         trust.setCapabilities(Set.of("oidc", "scim"));
-        trust.setExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI, FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI));
+        trust.setExtensionProfiles(Set.of(FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI));
         AdminResponse createdTrust = post(idpRealm.getName(), "trusts", trust);
         assertEquals(201, createdTrust.status(), createdTrust.body());
         DirectInstallationTrust outboundTrust = read(createdTrust.body(), DirectInstallationTrust.class);
@@ -378,7 +377,7 @@ class FedSetupExpressConfigurationTest {
         installation.setProtocol("oidc");
         installation.setCapabilities(Set.of("oidc", "scim"));
         installation.setScimFeatures(Set.of("PUSH_NEW_USERS"));
-        installation.setExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI, FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI));
+        installation.setExtensionProfiles(Set.of(FedSetupConstants.SCIM_CREDENTIAL_PROFILE_URI));
         FedSetupInstallation pending = read(post(idpRealm.getName(), "installations", installation).body(), FedSetupInstallation.class);
         AdminResponse dispatched = post(idpRealm.getName(), "installations/" + pending.getId() + "/dispatch", null);
         assertEquals(200, dispatched.status(), dispatched.body());
@@ -438,7 +437,7 @@ class FedSetupExpressConfigurationTest {
         preAuthorization.setIdpIssuer(realmIssuer(idpRealm));
         preAuthorization.setCimdUri(cimdUri(idpRealm));
         preAuthorization.setCapabilities(Set.of("saml"));
-        preAuthorization.setFederationExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
+        preAuthorization.setFederationExtensionProfiles(Set.of());
         String trustPreAuthorization = createTrustPreAuthorization(preAuthorization);
 
         DirectInstallationTrust trust = outboundBackChannelTrust(applicationTenant);
@@ -457,7 +456,7 @@ class FedSetupExpressConfigurationTest {
         installation.setClientId(IDP_SAML_CLIENT);
         installation.setProtocol("saml");
         installation.setCapabilities(Set.of("saml"));
-        installation.setExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
+        installation.setExtensionProfiles(Set.of());
         installation.setSamlAttributeMapping(Map.of("email", "mail", "given_name", "givenName"));
         FedSetupInstallation pending = read(post(idpRealm.getName(), "installations", installation).body(), FedSetupInstallation.class);
         AdminResponse dispatched = post(idpRealm.getName(), "installations/" + pending.getId() + "/dispatch", null);
@@ -515,7 +514,7 @@ class FedSetupExpressConfigurationTest {
         trust.setTrustProfileUri(FedSetupConstants.BACK_CHANNEL_TRUST_PROFILE_URI);
         trust.setInstallationRuntimeCimdUri(cimdUri(idpRealm));
         trust.setCapabilities(Set.of("oidc"));
-        trust.setExtensionProfiles(Set.of(FedSetupConstants.FEATURE_PROFILE_URI));
+        trust.setExtensionProfiles(Set.of());
         return trust;
     }
 

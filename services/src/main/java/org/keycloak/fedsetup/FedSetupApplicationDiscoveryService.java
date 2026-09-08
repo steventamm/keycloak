@@ -74,12 +74,11 @@ public final class FedSetupApplicationDiscoveryService {
         }
         document.setAuthorizationServer(authorizationServer);
         document.setConfigurationResource(configurationResource);
-        if (document.getProtocolsSupported() == null || document.getProtocolsSupported().isEmpty()
-                || !Set.of("oidc", "saml").containsAll(document.getProtocolsSupported())) {
-            throw new FedSetupValidationException("Application discovery document has no supported OIDC or SAML protocol");
+        if (document.getCapabilities() == null || document.getCapabilities().isEmpty()) {
+            throw new FedSetupValidationException("Application discovery document has no supported capability");
         }
-        Set<String> profiles = document.getDirectInstallationTrustProfilesSupported() == null ? Set.of()
-                : Set.copyOf(document.getDirectInstallationTrustProfilesSupported());
+        Set<String> profiles = document.getInstallationTrustProfilesSupported() == null ? Set.of()
+                : Set.copyOf(document.getInstallationTrustProfilesSupported());
         if (profiles.isEmpty()) {
             throw new FedSetupValidationException("Application discovery document does not advertise a Direct Installation Trust profile");
         }
