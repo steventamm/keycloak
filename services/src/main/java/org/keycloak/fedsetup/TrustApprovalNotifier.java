@@ -42,14 +42,23 @@ public final class TrustApprovalNotifier {
                     .header("Content-Type", "application/jwt")
                     .entity(new StringEntity(notification, ContentType.create("application/jwt", "UTF-8")));
             try (SimpleHttpResponse response = request.asResponse()) {
-                if (response.getStatus() >= 200 && response.getStatus() < 300) {
-                    pending.setApprovalNotificationEndpoint(null);
-                    store.updatePendingTrustAuthorization(pending, pending.getVersion());
-                }
+                // The notification is advisory.  Its delivery status never
+                // changes the approved result or creates a retry obligation.
             }
         } catch (Exception ignored) {
             // A notification is an advisory doorbell. Approval remains durable;
             // the IdP can resume with a later regular deferred request.
+        } finally {
+            // Do not retain an outbound target after this proposal is
+            // terminal.  This also bounds the lifetime of an IdP-supplied
+            // destination when delivery fails.
+            try {
+                pending.setApprovalNotificationEndpoint(null);
+                store.updatePendingTrustAuthorization(pending, pending.getVersion());
+            } catch (Exception ignored) {
+                // Approval remains durable even if endpoint cleanup races
+                // with another administrative update.
+            }
         }
     }
 

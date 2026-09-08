@@ -105,10 +105,10 @@ public final class OutboundTrustDispatcher {
                 .queryParam("idp_issuer", transaction.getIdpIssuer())
                 .queryParam("redirect_uri", transaction.getRedirectUri())
                 .queryParam("application_tenant_id", transaction.getApplicationTenantId())
-                .queryParam("authorized_capabilities", String.join(",", transaction.getCapabilities()))
-                .queryParam("provider_delegation_profiles", String.join(",", transaction.getProviderDelegationProfiles()))
-                .queryParam("federation_extension_profiles", String.join(",", transaction.getFederationExtensionProfiles()))
-                .queryParam("scope", "fedsetup-trust")
+                .queryParam("authorized_capabilities", String.join(" ", transaction.getCapabilities()))
+                .queryParam("provider_delegation_profiles", String.join(" ", transaction.getProviderDelegationProfiles()))
+                .queryParam("federation_extension_profiles", String.join(" ", transaction.getFederationExtensionProfiles()))
+                .queryParam("scope", "fedsetup:trust")
                 .queryParam("state", transaction.getState()).build().toString();
     }
 
@@ -143,7 +143,7 @@ public final class OutboundTrustDispatcher {
         KeyWrapper key = session.keys().getActiveKey(realm, KeyUse.SIG, Algorithm.RS256);
         if (key == null) throw new FedSetupValidationException("Realm has no active RS256 signing key");
         String cimd = cimdUri(session, realm);
-        JsonWebToken token = new JsonWebToken().issuer(cimd).id(UUID.randomUUID().toString())
+        JsonWebToken token = new JsonWebToken().issuer(cimd).subject(cimd).id(UUID.randomUUID().toString())
                 .issuedNowWithTTL(FedSetupConstants.MAX_AUTHORIZATION_LIFESPAN_SECONDS).audience(audience);
         token.setOtherClaims("idp_issuer", issuer(session, realm));
         token.setOtherClaims("application_tenant_id", trust.getApplicationTenantId());
@@ -205,7 +205,7 @@ public final class OutboundTrustDispatcher {
                     || !trust.getIdpIssuer().equals(confirmation.get("idp_issuer"))) {
                 throw new FedSetupValidationException("Application trust confirmation does not match the requested tenant and issuer");
             }
-            Set<String> capabilities = strings(confirmation.get("capabilities"), "capabilities");
+            Set<String> capabilities = strings(confirmation.get("authorized_capabilities"), "authorized_capabilities");
             Set<String> providerProfiles = strings(confirmation.get("provider_delegation_profiles"), "provider_delegation_profiles");
             Set<String> federationProfiles = strings(confirmation.get("federation_extension_profiles"), "federation_extension_profiles");
             if (!trust.getCapabilities().containsAll(capabilities)

@@ -59,12 +59,9 @@ public final class FrontChannelTrustService {
                 || !Objects.equals(confirmationEndpoint, InstallationAuthorizationValidator.stringClaim(assertion, "htu", "Confirmation proof"))
                 || !Objects.equals(InstallationAuthorizationValidator.sha256Base64Url(""),
                         InstallationAuthorizationValidator.stringClaim(assertion, "request_hash", "Confirmation proof"))
-                || !Objects.equals(transaction.getCapabilities(), InstallationAuthorizationValidator.stringSetOrEmpty(assertion,
-                        "authorized_capabilities", "Confirmation proof"))
-                || !Objects.equals(transaction.getProviderDelegationProfiles(), InstallationAuthorizationValidator.stringSetOrEmpty(assertion,
-                        "provider_delegation_profiles", "Confirmation proof"))
-                || !Objects.equals(transaction.getFederationExtensionProfiles(), InstallationAuthorizationValidator.stringSetOrEmpty(assertion,
-                        "federation_extension_profiles", "Confirmation proof"))) {
+                || !optionalSetMatches(assertion, transaction.getCapabilities(), "authorized_capabilities")
+                || !optionalSetMatches(assertion, transaction.getProviderDelegationProfiles(), "provider_delegation_profiles")
+                || !optionalSetMatches(assertion, transaction.getFederationExtensionProfiles(), "federation_extension_profiles")) {
             throw new FedSetupValidationException("Confirmation proof does not match the approved transaction");
         }
         InstallationAuthorizationValidator.requireLifetime(assertion, "Confirmation proof");
@@ -100,6 +97,11 @@ public final class FrontChannelTrustService {
         transaction.setConsumed(true);
         store.updateFrontChannelTransaction(transaction, transaction.getVersion());
         return created;
+    }
+
+    private static boolean optionalSetMatches(JsonWebToken assertion, java.util.Set<String> expected, String claim) {
+        if (!assertion.getOtherClaims().containsKey(claim)) return true;
+        return Objects.equals(expected, InstallationAuthorizationValidator.stringSetOrEmpty(assertion, claim, "Confirmation proof"));
     }
 
 }

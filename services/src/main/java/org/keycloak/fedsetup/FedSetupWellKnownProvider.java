@@ -70,7 +70,9 @@ public class FedSetupWellKnownProvider implements WellKnownProvider {
                     "requester_types_supported", java.util.List.of("app_instance", "workload_principal")));
         }
         capabilities.put("layered_updates", java.util.Map.of());
+        capabilities.put("connection_query", java.util.Map.of());
         result.setCapabilities(capabilities);
+        result.setConnectionQueryEndpoint(endpoint + "/connections");
         result.setProviderDelegationProfilesSupported(java.util.List.of());
         result.setFederationExtensionProfilesSupported(scimSupported
                 ? new java.util.ArrayList<>(profile.getExtensionProfiles())

@@ -60,4 +60,8 @@ public final class FedSetupUrls {
     public static String frontApprove(UriInfo uriInfo, RealmModel realm) {
         return resourceBase(uriInfo, realm) + "/front/approve";
     }
+
+    public static String frontDeny(UriInfo uriInfo, RealmModel realm) {
+        return resourceBase(uriInfo, realm) + "/front/deny";
+    }
 }

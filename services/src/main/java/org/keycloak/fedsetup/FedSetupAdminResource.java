@@ -266,6 +266,7 @@ public class FedSetupAdminResource {
             return error(Response.Status.CONFLICT, "The pending Direct Installation Trust authorization is no longer awaiting approval");
         }
         pending.setStatus("DENIED");
+        pending.setApprovalNotificationEndpoint(null);
         FedSetupPendingTrustAuthorization denied = store.updatePendingTrustAuthorization(pending, pending.getVersion());
         audit(OperationType.UPDATE, denied);
         return Response.ok(denied).header(FedSetupConstants.ETAG_HEADER, etag(denied.getVersion())).build();

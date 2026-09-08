@@ -89,6 +89,9 @@ public final class FedSetupApplicationDiscoveryService {
             requireEndpoint(document.getInstallationConsentEndpoint(), applicationBaseUri, "installation_consent_endpoint");
             requireEndpoint(document.getInstallationConfirmationEndpoint(), applicationBaseUri, "installation_confirmation_endpoint");
         }
+        if (document.getCapabilities().containsKey("connection_query")) {
+            requireEndpoint(document.getConnectionQueryEndpoint(), applicationBaseUri, "connection_query_endpoint");
+        }
     }
 
     private static void requireEndpoint(String endpoint, String baseUri, String label) {

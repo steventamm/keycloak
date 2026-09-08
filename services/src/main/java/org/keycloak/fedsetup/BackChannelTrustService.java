@@ -199,7 +199,8 @@ public final class BackChannelTrustService {
                                                     String applicationTenantId, String idpIssuer) {
         JsonWebToken token = InstallationAuthorizationValidator.verifyCimdJwt(session, compact, cimdUri, cimdUri, endpoint);
         InstallationAuthorizationValidator.requireLifetime(token, "Trust Establishment Request");
-        if (!Objects.equals(applicationTenantId, InstallationAuthorizationValidator.stringClaim(token, "application_tenant_id", "Trust Establishment Request"))
+        if (!Objects.equals(cimdUri, token.getSubject())
+                || !Objects.equals(applicationTenantId, InstallationAuthorizationValidator.stringClaim(token, "application_tenant_id", "Trust Establishment Request"))
                 || !Objects.equals(idpIssuer, FedSetupUri.canonicalize(InstallationAuthorizationValidator.stringClaim(token, "idp_issuer", "Trust Establishment Request")))
                 || !"POST".equals(InstallationAuthorizationValidator.stringClaim(token, "htm", "Trust Establishment Request"))
                 || !Objects.equals(endpoint, InstallationAuthorizationValidator.stringClaim(token, "htu", "Trust Establishment Request"))

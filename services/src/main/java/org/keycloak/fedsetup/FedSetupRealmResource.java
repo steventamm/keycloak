@@ -33,6 +33,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
 
@@ -172,22 +173,22 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                                            @QueryParam("provider_delegation_profiles") String providerProfileTerms,
                                            @QueryParam("federation_extension_profiles") String federationProfileTerms,
                                            @QueryParam("scope") String scope,
-                                           @QueryParam("audience") String audience,
                                            @QueryParam("state") String state) {
         try {
+            rejectRepeatedConsentParameters();
             if (!"code".equals(responseType) || blank(clientId) || blank(idpIssuer) || blank(redirectUri)
-                    || blank(applicationTenantId) || blank(state) || (blank(scope) && blank(audience))) {
-                throw new FedSetupValidationException("response_type, client_id, idp_issuer, redirect_uri, application_tenant_id, state, and scope or audience are required");
+                    || blank(applicationTenantId) || blank(state) || !"fedsetup:trust".equals(scope)) {
+                throw new FedSetupValidationException("response_type, client_id, idp_issuer, redirect_uri, application_tenant_id, state, and scope=fedsetup:trust are required");
             }
             FedSetupConfigurationProfile profile = requireApplicationProfile(applicationTenantId);
-            String cimdUri = FedSetupUri.canonicalize(clientId);
+            String cimdUri = clientId;
             String canonicalIssuer = FedSetupUri.canonicalize(idpIssuer);
-            String canonicalRedirectUri = FedSetupUri.canonicalizeRedirectUri(redirectUri);
             OIDCClientRepresentation metadata = FedSetupCimdResolver.metadata(session, cimdUri);
-            if (!"private_key_jwt".equals(metadata.getTokenEndpointAuthMethod())
+            if (!Objects.equals(cimdUri, metadata.getClientId())
+                    || !"private_key_jwt".equals(metadata.getTokenEndpointAuthMethod())
                     || !FedSetupConstants.INSTALLATION_SIGNING_ALGORITHM.equals(metadata.getTokenEndpointAuthSigningAlg())
                     || metadata.getRedirectUris() == null || metadata.getRedirectUris().stream()
-                    .map(FedSetupUri::canonicalizeRedirectUri).noneMatch(canonicalRedirectUri::equals)) {
+                    .noneMatch(redirectUri::equals)) {
                 throw new FedSetupValidationException("redirect_uri or client authentication method is not registered by the CIMD document");
             }
 
@@ -204,7 +205,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
             transaction.setApplicationTenantId(applicationTenantId);
             transaction.setIdpIssuer(canonicalIssuer);
             transaction.setCimdUri(cimdUri);
-            transaction.setRedirectUri(canonicalRedirectUri);
+            transaction.setRedirectUri(redirectUri);
             transaction.setState(state);
             transaction.setCapabilities(capabilities);
             transaction.setProviderDelegationProfiles(providerProfiles);
@@ -234,12 +235,24 @@ public class FedSetupRealmResource implements RealmResourceProvider {
     @GET
     @Path("front/callback")
     @Produces(MediaType.TEXT_HTML)
-    public Response frontChannelCallback(@QueryParam("code") String code, @QueryParam("state") String transactionId) {
+    public Response frontChannelCallback(@QueryParam("code") String code, @QueryParam("error") String error,
+                                         @QueryParam("error_description") String errorDescription,
+                                         @QueryParam("state") String transactionId) {
         try {
-            if (blank(code) || blank(transactionId)) throw new FedSetupValidationException("Authorization response is missing code or state");
+            if (blank(transactionId) || (blank(code) == blank(error))) {
+                throw new FedSetupValidationException("Authorization response must contain exactly one of code or error, and state");
+            }
             FedSetupFrontChannelTransaction transaction = store.findFrontChannelTransactionByState(transactionId);
             if (transaction == null || transaction.getTrustId() == null || transaction.getExpiresAt() <= Time.currentTime() || transaction.isConsumed()) {
                 throw new FedSetupValidationException("Front-channel authorization transaction is expired or invalid");
+            }
+            if (!blank(error)) {
+                transaction.setConsumed(true);
+                store.updateFrontChannelTransaction(transaction, transaction.getVersion());
+                String detail = blank(errorDescription) ? error : error + ": " + errorDescription;
+                return Response.status(Response.Status.BAD_REQUEST).type(MediaType.TEXT_HTML)
+                        .entity(errorPage("Front-channel trust was not established (" + detail + ")"))
+                        .header("Cache-Control", "no-store").build();
             }
             return outboundFrontChannelCallback(transaction, code);
         } catch (FedSetupValidationException e) {
@@ -288,6 +301,30 @@ public class FedSetupRealmResource implements RealmResourceProvider {
             transaction.setConsented(true);
             store.updateFrontChannelTransaction(transaction, transaction.getVersion());
             URI redirect = UriBuilder.fromUri(transaction.getRedirectUri()).queryParam("code", code)
+                    .queryParam("state", transaction.getState()).build();
+            return Response.seeOther(redirect).header("Cache-Control", "no-store").build();
+        } catch (FedSetupValidationException e) {
+            return Response.status(Response.Status.BAD_REQUEST).type(MediaType.TEXT_HTML).entity(errorPage(e.getMessage())).build();
+        }
+    }
+
+    @POST
+    @Path("front/deny")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response denyFrontChannelTrust(@FormParam("transaction") String transactionId,
+                                          @FormParam("consent_nonce") String consentNonce) {
+        try {
+            FedSetupFrontChannelTransaction transaction = store.getFrontChannelTransaction(transactionId);
+            if (transaction == null || transaction.getExpiresAt() <= Time.currentTime() || transaction.isConsumed() || transaction.isConsented()) {
+                throw new FedSetupValidationException("Front-channel authorization transaction is expired or invalid");
+            }
+            requireApplicationRealmAdministrator();
+            if (!constantTimeEquals(transaction.getConsentNonce(), consentNonce)) {
+                throw new FedSetupValidationException("Front-channel consent nonce is invalid");
+            }
+            transaction.setConsumed(true);
+            store.updateFrontChannelTransaction(transaction, transaction.getVersion());
+            URI redirect = UriBuilder.fromUri(transaction.getRedirectUri()).queryParam("error", "access_denied")
                     .queryParam("state", transaction.getState()).build();
             return Response.seeOther(redirect).header("Cache-Control", "no-store").build();
         } catch (FedSetupValidationException e) {
@@ -377,10 +414,8 @@ public class FedSetupRealmResource implements RealmResourceProvider {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getConnection(@PathParam("connectionId") String connectionId,
                                   @QueryParam("application_tenant_id") String applicationTenantId,
-                                  @HeaderParam("Authorization") String authorization,
-                                  String body) {
+                                  @HeaderParam("Authorization") String authorization) {
         try {
-            requireNoBody(body, "GET request");
             FedSetupConnection connection = store.requireConnection(connectionId);
             if (applicationTenantId != null && !connection.getApplicationTenantId().equals(applicationTenantId)) {
                 throw new NotFoundException();
@@ -392,6 +427,89 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         } catch (FedSetupValidationException e) {
             return error(Response.Status.BAD_REQUEST, e.getMessage());
         }
+    }
+
+    /** Connection Query extension: returns only connections under one trust-bound client authorization. */
+    @GET
+    @Path("connections")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response queryConnections(@HeaderParam("Authorization") String authorization,
+                                     @QueryParam("capability") String capability,
+                                     @QueryParam("status") String status,
+                                     @QueryParam("limit") String limitValue,
+                                     @QueryParam("cursor") String cursor) {
+        try {
+            AuthenticationManager.AuthResult authenticated = oauthAccessToken(authorization);
+            List<DirectInstallationTrust> matches = store.getTrusts().stream()
+                    .filter(trust -> trust.isActive() && FedSetupConfigurationClientService.isAuthorizedClient(authenticated.client(), trust))
+                    .toList();
+            if (matches.size() != 1) {
+                throw new FedSetupValidationException("Connection Query authorization must identify exactly one Direct Installation Trust");
+            }
+            DirectInstallationTrust trust = matches.get(0);
+            if (!blank(status) && !Set.of("active", "deactivated").contains(status)) {
+                throw new FedSetupValidationException("Connection Query status must be active or deactivated");
+            }
+            int limit = parseQueryLimit(limitValue);
+            int offset = decodeQueryCursor(cursor, trust.getId(), authenticated.client().getId());
+            List<FedSetupConnection> connections = store.getConnections().stream()
+                    .filter(connection -> Objects.equals(connection.getTrustId(), trust.getId()))
+                    .filter(connection -> blank(capability) || connection.getCapabilities().contains(capability))
+                    .filter(connection -> blank(status) || ("active".equals(status) && "ACTIVE".equals(connection.getStatus()))
+                            || ("deactivated".equals(status) && "DEACTIVATED".equals(connection.getStatus())))
+                    .toList();
+            if (offset > connections.size()) throw new FedSetupValidationException("Connection Query cursor is invalid");
+            int end = Math.min(connections.size(), offset + limit);
+            List<Map<String, Object>> result = connections.subList(offset, end).stream().map(this::queryConnectionRepresentation).toList();
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("connections", result);
+            if (end < connections.size()) response.put("next_cursor", encodeQueryCursor(trust.getId(), authenticated.client().getId(), end));
+            return Response.ok(response).type(MediaType.APPLICATION_JSON).build();
+        } catch (FedSetupValidationException e) {
+            return error(Response.Status.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    private static int parseQueryLimit(String value) {
+        if (blank(value)) return 100;
+        try {
+            int result = Integer.parseInt(value);
+            if (result <= 0) throw new NumberFormatException();
+            return Math.min(result, 1000);
+        } catch (NumberFormatException e) {
+            throw new FedSetupValidationException("Connection Query limit must be a positive integer");
+        }
+    }
+
+    private static String encodeQueryCursor(String trustId, String clientId, int offset) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString((trustId + "|" + clientId + "|" + offset).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static int decodeQueryCursor(String cursor, String trustId, String clientId) {
+        if (blank(cursor)) return 0;
+        try {
+            String value = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+            String prefix = trustId + "|" + clientId + "|";
+            if (!value.startsWith(prefix)) throw new IllegalArgumentException();
+            int offset = Integer.parseInt(value.substring(prefix.length()));
+            if (offset < 0) throw new IllegalArgumentException();
+            return offset;
+        } catch (RuntimeException e) {
+            throw new FedSetupValidationException("Connection Query cursor is invalid");
+        }
+    }
+
+    private Map<String, Object> queryConnectionRepresentation(FedSetupConnection connection) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("connection_id", connection.getId());
+        result.put("etag", etag(connection.getVersion()));
+        result.put("capabilities", connection.getCapabilities());
+        result.put("status", "ACTIVE".equals(connection.getStatus()) ? "active" : "deactivated");
+        result.put("idp_issuer", connection.getIdpIssuer());
+        result.put("application_tenant_id", connection.getApplicationTenantId());
+        result.put("origin", "fedsetup");
+        result.put("created_at", Instant.ofEpochSecond(connection.getCreatedAt()).toString());
+        return result;
     }
 
     @PATCH
@@ -570,6 +688,17 @@ public class FedSetupRealmResource implements RealmResourceProvider {
         return profile;
     }
 
+    private void rejectRepeatedConsentParameters() {
+        MultivaluedMap<String, String> parameters = session.getContext().getUri().getQueryParameters();
+        for (String name : Set.of("response_type", "client_id", "idp_issuer", "redirect_uri", "application_tenant_id",
+                "authorized_capabilities", "provider_delegation_profiles", "federation_extension_profiles", "scope", "state")) {
+            List<String> values = parameters.get(name);
+            if (values != null && values.size() != 1) {
+                throw new FedSetupValidationException("Consent Request parameter " + name + " must not be repeated");
+            }
+        }
+    }
+
     private ClientModel frontChannelLoginClient() {
         ClientModel client = realm.getClientByClientId(FedSetupConstants.FRONT_CHANNEL_INTERNAL_CLIENT);
         String callback = FedSetupUrls.frontLoginCallback(session.getContext().getUri(UrlType.FRONTEND), realm);
@@ -617,7 +746,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                 "application_tenant_id", trust.getApplicationTenantId(),
                 "idp_issuer", trust.getIdpIssuer(),
                 "configuration_resource", FedSetupUrls.resourceBase(session.getContext().getUri(UrlType.FRONTEND), realm),
-                "capabilities", trust.getCapabilities(),
+                "authorized_capabilities", trust.getCapabilities(),
                 "provider_delegation_profiles", trust.getProviderDelegationProfiles(),
                 "federation_extension_profiles", trust.getExtensionProfiles());
     }
@@ -630,10 +759,9 @@ public class FedSetupRealmResource implements RealmResourceProvider {
     private static Set<String> terms(String raw) {
         if (raw == null || raw.isBlank()) return Set.of();
         Set<String> result = new java.util.LinkedHashSet<>();
-        for (String value : raw.split(",", -1)) {
+        for (String value : raw.trim().split(" +")) {
             String term = value.trim();
-            if (term.isEmpty()) throw new FedSetupValidationException("Requested capability or profile contains an empty value");
-            result.add(term);
+            if (!term.isEmpty()) result.add(term);
         }
         return result;
     }
@@ -651,6 +779,7 @@ public class FedSetupRealmResource implements RealmResourceProvider {
 
     private String consentPage(FedSetupFrontChannelTransaction transaction) {
         String action = FedSetupUrls.frontApprove(session.getContext().getUri(UrlType.FRONTEND), realm);
+        String deny = FedSetupUrls.frontDeny(session.getContext().getUri(UrlType.FRONTEND), realm);
         return "<!doctype html><html><head><meta charset=\"utf-8\"><title>Approve Direct Installation Trust</title>"
                 + "<style>body{font-family:sans-serif;max-width:48rem;margin:3rem auto}code{word-break:break-all}</style></head><body>"
                 + "<h1>Approve Direct Installation Trust</h1><p>An IdP Tenant requests a trust limited to this Application Tenant.</p>"
@@ -661,7 +790,11 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                 + "</dl><form method=\"post\" action=\"" + html(action) + "\">"
                 + "<input type=\"hidden\" name=\"transaction\" value=\"" + html(transaction.getId()) + "\">"
                 + "<input type=\"hidden\" name=\"consent_nonce\" value=\"" + html(transaction.getConsentNonce()) + "\">"
-                + "<button type=\"submit\">Approve trust</button></form></body></html>";
+                + "<button type=\"submit\">Approve trust</button></form>"
+                + "<form method=\"post\" action=\"" + html(deny) + "\">"
+                + "<input type=\"hidden\" name=\"transaction\" value=\"" + html(transaction.getId()) + "\">"
+                + "<input type=\"hidden\" name=\"consent_nonce\" value=\"" + html(transaction.getConsentNonce()) + "\">"
+                + "<button type=\"submit\">Deny</button></form></body></html>";
     }
 
     private static String successPage(String message) {
@@ -1261,11 +1394,14 @@ public class FedSetupRealmResource implements RealmResourceProvider {
                 || value.contains("A FedSetup Connection already exists")) return "conflict";
         if (value.contains("pre-authorization") || value.contains("active consent")
                 || value.contains("No Direct Installation Trust exists")
+                || value.contains("No active Direct Installation Trust authorization")
                 || value.contains("Direct Installation Trust is not active")
                 || value.contains("Connection is not bound to this Direct Installation Trust")
                 || value.contains("No Application integration profile")) return "untrusted_issuer";
         if (value.contains("OAuth access token") || value.contains("Installation Authorization") || value.contains("Trust Establishment Request")
-                || value.contains("client_assertion") || value.contains("Authorization code")) return "invalid_credential";
+                || value.contains("client_assertion") || value.contains("Authorization code")
+                || value.contains("confirmation proof") || value.contains("Confirmation proof")) return "invalid_credential";
+        if (value.contains("A Direct Installation Trust already exists")) return "conflict";
         return "invalid_request";
     }
 

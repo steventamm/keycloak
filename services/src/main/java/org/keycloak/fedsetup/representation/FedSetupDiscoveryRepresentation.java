@@ -25,6 +25,7 @@ public class FedSetupDiscoveryRepresentation {
     @JsonProperty("configuration_resource") private String configurationResource;
     @JsonProperty("connection_endpoint_template") private String connectionEndpointTemplate;
     @JsonProperty("capabilities") private Map<String, Object> capabilities = new LinkedHashMap<>();
+    @JsonProperty("connection_query_endpoint") private String connectionQueryEndpoint;
     @JsonProperty("provider_delegation_profiles_supported") private List<String> providerDelegationProfilesSupported = new ArrayList<>();
     @JsonProperty("federation_extension_profiles_supported") private List<String> federationExtensionProfilesSupported = new ArrayList<>();
     @JsonProperty("sso_connection_cardinality") private String ssoConnectionCardinality;
@@ -49,6 +50,8 @@ public class FedSetupDiscoveryRepresentation {
     public void setConnectionEndpointTemplate(String value) { connectionEndpointTemplate = value; }
     public Map<String, Object> getCapabilities() { return capabilities; }
     public void setCapabilities(Map<String, Object> value) { capabilities = value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value); }
+    public String getConnectionQueryEndpoint() { return connectionQueryEndpoint; }
+    public void setConnectionQueryEndpoint(String value) { connectionQueryEndpoint = value; }
     public List<String> getProviderDelegationProfilesSupported() { return providerDelegationProfilesSupported; }
     public void setProviderDelegationProfilesSupported(List<String> value) { providerDelegationProfilesSupported = value == null ? new ArrayList<>() : new ArrayList<>(value); }
     public List<String> getFederationExtensionProfilesSupported() { return federationExtensionProfilesSupported; }
