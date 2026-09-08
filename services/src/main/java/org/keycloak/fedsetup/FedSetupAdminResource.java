@@ -111,12 +111,16 @@ public class FedSetupAdminResource {
     @Path("application-profile")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public FedSetupConfigurationProfile putApplicationProfile(FedSetupConfigurationProfile profile) {
+    public Response putApplicationProfile(FedSetupConfigurationProfile profile) {
         auth.realm().requireManageRealm();
-        validateProfile(profile);
-        store.setApplicationProfile(profile);
-        audit(OperationType.UPDATE, profile);
-        return profile;
+        try {
+            validateProfile(profile);
+            store.setApplicationProfile(profile);
+            audit(OperationType.UPDATE, profile);
+            return Response.ok(profile).build();
+        } catch (FedSetupValidationException e) {
+            return error(Response.Status.BAD_REQUEST, e.getMessage());
+        }
     }
 
     @GET

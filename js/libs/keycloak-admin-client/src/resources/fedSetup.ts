@@ -36,7 +36,7 @@ export class FedSetup extends Resource<{ realm?: string }> {
   });
 
   public updateApplicationProfile = this.makeUpdateRequest<
-    void,
+    Record<string, never>,
     FedSetupConfigurationProfile,
     FedSetupConfigurationProfile
   >({
