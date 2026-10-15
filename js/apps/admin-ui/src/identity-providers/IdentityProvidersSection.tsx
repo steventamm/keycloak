@@ -24,6 +24,9 @@ import {
   PageSection,
   Split,
   SplitItem,
+  Tab,
+  Tabs,
+  TabTitleText,
   Text,
   TextContent,
   TextVariants,
@@ -41,6 +44,7 @@ import { useRealm } from "../context/realm-context/RealmContext";
 import { useServerInfo } from "../context/server-info/ServerInfoProvider";
 import helpUrls from "../help-urls";
 import { upperCaseFormatter } from "../util";
+import { FedSetupSection } from "./FedSetupSection";
 import { ManageOrderDialog } from "./ManageOrderDialog";
 import { toIdentityProvider } from "./routes/IdentityProvider";
 import { toIdentityProviderCreate } from "./routes/IdentityProviderCreate";
@@ -113,6 +117,7 @@ export default function IdentityProvidersSection() {
   const refresh = () => setKey(key + 1);
 
   const [hide, setHide] = useState(false);
+  const [activeTab, setActiveTab] = useState<string | number>("providers");
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [manageDisplayDialog, setManageDisplayDialog] = useState(false);
   const [hasProviders, setHasProviders] = useState(false);
@@ -208,6 +213,26 @@ export default function IdentityProvidersSection() {
         subKey="listExplain"
         helpUrl={helpUrls.identityProvidersUrl}
       />
+      <PageSection variant="light" className="pf-v5-u-p-0">
+        <Tabs
+          activeKey={activeTab}
+          onSelect={(_e, tabIndex) => setActiveTab(tabIndex)}
+          isBox
+        >
+          <Tab
+            eventKey="providers"
+            title={<TabTitleText>{t("identityProviders")}</TabTitleText>}
+          />
+          <Tab
+            eventKey="fedsetup"
+            data-testid="fedsetup-tab"
+            title={<TabTitleText>FedSetup Express Configuration</TabTitleText>}
+          />
+        </Tabs>
+      </PageSection>
+      {activeTab === "fedsetup" ? (
+        <FedSetupSection />
+      ) : (
       <PageSection
         variant={!hasProviders ? "default" : "light"}
         className={!hasProviders ? "" : "pf-v5-u-p-0"}
@@ -344,6 +369,7 @@ export default function IdentityProvidersSection() {
           />
         )}
       </PageSection>
+      )}
     </>
   );
 }

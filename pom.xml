@@ -334,6 +334,7 @@
         <module>scim</module>
         <module>ssf</module>
         <module>authzen</module>
+        <module>fedsetup</module>
     </modules>
 
     <dependencyManagement>
@@ -1386,6 +1387,13 @@
             <dependency>
                 <groupId>org.keycloak</groupId>
                 <artifactId>keycloak-ssf-services</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- FedSetup -->
+            <dependency>
+                <groupId>org.keycloak</groupId>
+                <artifactId>keycloak-fedsetup-services</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
